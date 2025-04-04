@@ -2,6 +2,7 @@ from flask import Flask
 from flask_cors import CORS
 import os
 from .database import init_db
+from datetime import timedelta
 
 def create_app(test_config=None):
     # Create and configure the app
@@ -15,6 +16,8 @@ def create_app(test_config=None):
     # Set default configuration
     app.config.from_mapping(
         SECRET_KEY='dev',
+        JWT_SECRET_KEY=os.environ.get('JWT_SECRET_KEY', 'dev-jwt-secret'),
+        JWT_ACCESS_TOKEN_EXPIRES=timedelta(hours=24),
     )
 
     if test_config is None:
@@ -32,6 +35,10 @@ def create_app(test_config=None):
         
     # Initialize MongoDB connection
     init_db()
+    
+    # Initialize JWT
+    from .auth import init_jwt
+    init_jwt(app)
 
     # Register blueprints
     from .routes import main, web

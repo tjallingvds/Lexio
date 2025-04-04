@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:5001/api';
+const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:5001/api';
 
 export interface Document {
   id: string;
@@ -11,9 +11,20 @@ export interface Document {
 const documentCache: {[key: string]: {document: Document, timestamp: number}} = {};
 const CACHE_EXPIRATION_MS = 30 * 60 * 1000; // 30 minutes
 
+// Helper function to get auth headers
+function getAuthHeaders() {
+  const token = localStorage.getItem('token');
+  return {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` })
+  };
+}
+
 export async function fetchDocuments(): Promise<Document[]> {
   try {
-    const response = await fetch(`${API_URL}/documents`);
+    const response = await fetch(`${API_URL}/documents`, {
+      headers: getAuthHeaders()
+    });
     if (!response.ok) {
       throw new Error('Failed to fetch documents');
     }
@@ -37,7 +48,9 @@ export async function fetchDocument(id: string): Promise<Document | null> {
     }
     
     console.log(`Cache miss or expired for document ID: ${id}, fetching from server`);
-    const response = await fetch(`${API_URL}/documents/${id}`);
+    const response = await fetch(`${API_URL}/documents/${id}`, {
+      headers: getAuthHeaders()
+    });
     if (!response.ok) {
       throw new Error('Failed to fetch document');
     }
@@ -64,9 +77,7 @@ export async function createDocument(title: string, content: string = ''): Promi
     
     const response = await fetch(`${API_URL}/documents`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ title, content }),
     });
     
@@ -115,9 +126,7 @@ export async function updateDocument(id: string, title?: string, content?: strin
     
     const response = await fetch(`${API_URL}/documents/${id}`, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(requestBody),
     });
     
@@ -156,9 +165,7 @@ export async function deleteDocument(id: string): Promise<boolean> {
     
     const response = await fetch(`${API_URL}/documents/${id}`, {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-      }
+      headers: getAuthHeaders()
     });
     
     if (!response.ok) {

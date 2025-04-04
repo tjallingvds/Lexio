@@ -5,6 +5,7 @@ import os
 import json
 from openai import OpenAI
 from .database import get_db
+from .auth import authenticate_user, hash_password, require_auth, create_access_token
 
 # API blueprint with /api prefix
 main = Blueprint('main', __name__, url_prefix='/api')
@@ -23,6 +24,93 @@ def index():
 def serialize_document(doc):
     doc['id'] = str(doc.pop('_id'))
     return doc
+
+# Helper function to serialize user (remove password)
+def serialize_user(user):
+    if user:
+        user = dict(user)  # Convert from BSON to dict
+        user['id'] = str(user.pop('_id'))
+        if 'password' in user:
+            del user['password']
+        
+        # Ensure all fields are JSON serializable
+        for key, value in user.items():
+            if isinstance(value, ObjectId):
+                user[key] = str(value)
+            elif isinstance(value, datetime):
+                user[key] = value.isoformat()
+    return user
+
+@main.route('/auth/register', methods=['POST'])
+def register():
+    try:
+        data = request.get_json()
+        
+        if not data or not data.get('email') or not data.get('password'):
+            return jsonify({"error": "Email and password are required"}), 400
+        
+        db = get_db()
+        
+        # Check if user already exists
+        if db.users.find_one({"email": data['email']}):
+            return jsonify({"error": "Email already registered"}), 409
+        
+        # Create new user
+        new_user = {
+            "name": data.get('name', ''),
+            "email": data['email'],
+            "password": hash_password(data['password']),
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        result = db.users.insert_one(new_user)
+        new_user['_id'] = result.inserted_id
+        
+        # Generate access token
+        access_token = create_access_token(identity=str(result.inserted_id))
+        
+        # Ensure serialized_user is actually a serializable dict
+        serialized_user = serialize_user(new_user)
+        
+        return jsonify({
+            "user": serialized_user,
+            "access_token": access_token
+        }), 201
+    except Exception as e:
+        print(f"Registration error: {str(e)}")
+        return jsonify({"error": "Registration failed: " + str(e)}), 400
+
+@main.route('/auth/login', methods=['POST'])
+def login():
+    try:
+        data = request.get_json()
+        
+        if not data or not data.get('email') or not data.get('password'):
+            return jsonify({"error": "Email and password are required"}), 400
+        
+        user = authenticate_user(data['email'], data['password'])
+        
+        if not user:
+            return jsonify({"error": "Invalid email or password"}), 401
+        
+        # Generate access token
+        access_token = create_access_token(identity=str(user['_id']))
+        
+        # Ensure serialized_user is actually a serializable dict
+        serialized_user = serialize_user(user)
+        
+        return jsonify({
+            "user": serialized_user,
+            "access_token": access_token
+        })
+    except Exception as e:
+        print(f"Login error: {str(e)}")
+        return jsonify({"error": "Login failed: " + str(e)}), 400
+
+@main.route('/auth/me', methods=['GET'])
+@require_auth
+def get_current_user(current_user):
+    return jsonify({"user": serialize_user(current_user)})
 
 @main.route('/ai/command', methods=['POST'])
 def ai_command():
@@ -99,18 +187,26 @@ def ai_command():
         return jsonify({"error": str(e)}), 500
 
 @main.route('/documents', methods=['GET'])
-def get_documents():
+@require_auth
+def get_documents(current_user):
     db = get_db()
-    documents = list(db.documents.find())
+    # Only fetch documents belonging to current user
+    documents = list(db.documents.find({"user_id": str(current_user['_id'])}))
     # Convert ObjectId to string for JSON serialization
     serialized_documents = [serialize_document(doc) for doc in documents]
     return jsonify({"documents": serialized_documents})
 
 @main.route('/documents/<document_id>', methods=['GET'])
-def get_document(document_id):
+@require_auth
+def get_document(current_user, document_id):
     db = get_db()
     try:
-        document = db.documents.find_one({"_id": ObjectId(document_id)})
+        # Only fetch if document belongs to current user
+        document = db.documents.find_one({
+            "_id": ObjectId(document_id),
+            "user_id": str(current_user['_id'])
+        })
+        
         if document:
             return jsonify({"document": serialize_document(document)})
         return jsonify({"error": "Document not found"}), 404
@@ -118,7 +214,8 @@ def get_document(document_id):
         return jsonify({"error": str(e)}), 400
 
 @main.route('/documents', methods=['POST'])
-def create_document():
+@require_auth
+def create_document(current_user):
     data = request.get_json()
     if not data or 'title' not in data:
         return jsonify({"error": "Missing title"}), 400
@@ -127,6 +224,8 @@ def create_document():
     new_doc = {
         "title": data["title"],
         "content": data.get("content", ""),
+        "user_id": str(current_user['_id']),
+        "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat()
     }
     
@@ -136,13 +235,23 @@ def create_document():
     return jsonify({"document": serialize_document(new_doc)}), 201
 
 @main.route('/documents/<document_id>', methods=['PUT'])
-def update_document(document_id):
+@require_auth
+def update_document(current_user, document_id):
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
     
     db = get_db()
     try:
+        # First check if document belongs to user
+        document = db.documents.find_one({
+            "_id": ObjectId(document_id),
+            "user_id": str(current_user['_id'])
+        })
+        
+        if not document:
+            return jsonify({"error": "Document not found"}), 404
+            
         update_data = {
             "title": data.get("title"),
             "content": data.get("content"),
@@ -164,10 +273,16 @@ def update_document(document_id):
         return jsonify({"error": str(e)}), 400
 
 @main.route('/documents/<document_id>', methods=['DELETE'])
-def delete_document(document_id):
+@require_auth
+def delete_document(current_user, document_id):
     db = get_db()
     try:
-        result = db.documents.delete_one({"_id": ObjectId(document_id)})
+        # Only delete if document belongs to current user
+        result = db.documents.delete_one({
+            "_id": ObjectId(document_id),
+            "user_id": str(current_user['_id'])
+        })
+        
         if result.deleted_count:
             return jsonify({"success": True})
         return jsonify({"error": "Document not found"}), 404
