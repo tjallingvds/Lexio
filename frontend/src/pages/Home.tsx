@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Document, fetchDocuments } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { PlusIcon, PanelLeftIcon, SendIcon, AtSignIcon } from 'lucide-react';
+import { PlusIcon, PanelLeftIcon, SendIcon, AtSignIcon, PencilIcon, UploadIcon, PlayIcon } from 'lucide-react';
 import { AppSidebar } from '@/components/app-sidebar';
 import { SidebarProvider, useSidebar } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
@@ -38,7 +38,7 @@ export default function Home() {
           <HomeHeader />
           <div className="flex-1 flex flex-col items-center justify-center py-12 px-4">
             <div className="max-w-2xl w-full mx-auto">
-              <h1 className="text-3xl font-bold text-center mb-4">Ready to write your next paper?</h1>
+              <h1 className="text-3xl font-bold text-center mb-4">Ready to write your next paper?🚀🚀</h1>
               <p className="text-center text-gray-600 mb-6">Mention the topic, drag and drop a file or chose an option to get started</p>
               
               <div className="border rounded-lg mb-6 p-3">
@@ -61,7 +61,7 @@ export default function Home() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <Link to="/editor" className="border rounded-lg p-4 hover:shadow-md transition-all">
                   <div className="mb-1">
-                    <PlusIcon className="h-5 w-5" />
+                    <PencilIcon className="h-5 w-5" />
                   </div>
                   <h3 className="font-medium text-sm mb-0.5">Write</h3>
                   <p className="text-xs text-gray-500">Write and cite with AI</p>
@@ -69,18 +69,18 @@ export default function Home() {
                 
                 <div className="border rounded-lg p-4 hover:shadow-md transition-all">
                   <div className="mb-1">
-                    <PlusIcon className="h-5 w-5" />
+                    <UploadIcon className="h-5 w-5" />
                   </div>
                   <h3 className="font-medium text-sm mb-0.5">Import</h3>
-                  <p className="text-xs text-gray-500">Chat with docs and videos</p>
+                  <p className="text-xs text-gray-500">Import the papers you want to cite</p>
                 </div>
                 
                 <div className="border rounded-lg p-4 hover:shadow-md transition-all">
                   <div className="mb-1">
-                    <PlusIcon className="h-5 w-5" />
+                    <PlayIcon className="h-5 w-5" />
                   </div>
-                  <h3 className="font-medium text-sm mb-0.5">Record</h3>
-                  <p className="text-xs text-gray-500">Record and chat with audio</p>
+                  <h3 className="font-medium text-sm mb-0.5">Continue</h3>
+                  <p className="text-xs text-gray-500">Continue writing from where you left off</p>
                 </div>
               </div>
               
