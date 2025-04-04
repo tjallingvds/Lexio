@@ -775,21 +775,29 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
     }
 
     return (
-      <div className="bg-white h-full">
+      <div className="h-full flex flex-col">
         <DndProvider backend={HTML5Backend}>
           <Plate 
             editor={editor}
             onChange={handleEditorChange}
+            initialValue={content || undefined}
           >
-            <EditorContainer>
-              <Editor variant="demo" />
-            </EditorContainer>
-
+            <div className="flex flex-col h-full">
+              {/* The FixedToolbarPlugin adds header and toolbar here */}
+              
+              {/* Scrollable content area */}
+              <div className="flex-1 overflow-y-auto">
+                <EditorContainer>
+                  <Editor variant="demo" />
+                </EditorContainer>
+              </div>
+            </div>
+            
             <SettingsDialog />
           </Plate>
         </DndProvider>
+        
         <SaveIndicator saveState={saveState} className="fixed bottom-2 right-2 z-10 flex items-center" />
-
         <Toaster position="top-right" />
       </div>
     );

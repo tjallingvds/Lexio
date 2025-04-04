@@ -157,6 +157,9 @@ def ai_command():
         model = data.get('model', 'gpt-3.5-turbo')  # Default to 3.5 which has larger context
         system = data.get('system')
         
+        # Extract web search options if provided
+        web_search_options = data.get('web_search_options')
+        
         # Debug data received
         print(f"Backend received request with:")
         print(f"- API key present: {bool(api_key)}")
@@ -165,6 +168,7 @@ def ai_command():
         print(f"- Messages count: {len(messages)}")
         print(f"- System prompt present: {bool(system)}")
         print(f"- System prompt length: {len(system) if system else 0}")
+        print(f"- Web search options present: {bool(web_search_options)}")
         
         # Validate parameters
         if not api_key:
@@ -239,13 +243,28 @@ def ai_command():
             
             # Create chat completion with streaming
             try:
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=sanitized_messages,
-                    stream=True,
-                    max_tokens=1500,  # Reasonable limit for response
-                    temperature=0.7
-                )
+                # Base parameters for the API call
+                completion_params = {
+                    "model": model,
+                    "messages": sanitized_messages,
+                    "stream": True,
+                    "max_tokens": 1500,  # Reasonable limit for response
+                }
+                
+                # Only add temperature for non-web-search models
+                if "search" not in model:
+                    completion_params["temperature"] = 0.7
+                
+                # Add web search options if provided and using a search-compatible model
+                if web_search_options and "search" in model:
+                    print(f"Adding web search options to API call: {web_search_options}")
+                    completion_params["web_search_options"] = web_search_options
+                
+                # Debug log the final parameters
+                print(f"Final API parameters: {json.dumps({k: '...' if k == 'messages' else v for k, v in completion_params.items()})}")
+                
+                # Make the API call with the parameters
+                response = client.chat.completions.create(**completion_params)
                 
                 print("Stream created successfully, beginning to yield chunks")
                 
@@ -268,7 +287,19 @@ def ai_command():
                     error_msg = "Invalid or expired OpenAI API key. Please update your API key in Settings."
                 elif "quota" in error_msg.lower() or "exceed" in error_msg.lower():
                     error_msg = "OpenAI API quota exceeded. Please check your usage limits or update your payment information."
+                elif "web_search_options" in error_msg.lower():
+                    error_msg = "Web search is only available with compatible models like gpt-4o-search-preview. Please update your model in Settings."
+                elif "incompatible request" in error_msg.lower() or "incompatible" in error_msg.lower():
+                    error_msg = "Invalid parameters for the selected model. Try disabling web search or changing the model in Settings."
+                elif "content filter" in error_msg.lower() or "content management" in error_msg.lower():
+                    error_msg = "The content was flagged by OpenAI's content filter. Try rephrasing your query."
+                elif "rate limit" in error_msg.lower():
+                    error_msg = "OpenAI API rate limit reached. Please try again in a few moments."
+                elif "model capacity" in error_msg.lower() or "overloaded" in error_msg.lower():
+                    error_msg = "The AI model is currently overloaded. Please try again in a few moments."
                 
+                # Send error to frontend for better UX
+                print(f"Sending error to frontend: {error_msg}")
                 yield f"data: {json.dumps({'error': error_msg})}\n\n"
                 yield "data: [DONE]\n\n"
         
@@ -424,13 +455,29 @@ def extract_pdf_text():
 
 @main.route('/pdf-content/<pdf_id>', methods=['GET'])
 def get_pdf_content(pdf_id):
-    """Get the full text content of a PDF"""
-    text = get_pdf_text(pdf_id)
+    """Get the full text content of a PDF with improved handling for large files"""
+    print(f"Retrieving content for PDF ID: {pdf_id}")
     
-    if not text:
-        return jsonify({"error": "PDF not found"}), 404
+    try:
+        text = get_pdf_text(pdf_id)
         
-    return jsonify({"text": text})
+        if not text:
+            print(f"PDF not found: {pdf_id}")
+            return jsonify({"error": "PDF not found"}), 404
+        
+        # Log content size for debugging
+        content_size = len(text)
+        print(f"Returning PDF content: {content_size} characters")
+        
+        # Return complete content without truncation
+        return jsonify({
+            "success": True,
+            "text": text,
+            "size": content_size
+        })
+    except Exception as e:
+        print(f"Error retrieving PDF content: {e}")
+        return jsonify({"error": f"Error retrieving PDF: {str(e)}"}), 500
 
 @main.route('/pdf-query', methods=['POST'])
 def query_pdf_content():
