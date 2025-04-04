@@ -38,7 +38,7 @@ export default function NewDocument() {
         <h2 className="text-2xl font-bold mb-4">Creating new document...</h2>
         <p>Please wait while we set up your new document.</p>
       </div>
-      <Toaster />
+      <Toaster position="top-right" />
     </div>
   );
 } 

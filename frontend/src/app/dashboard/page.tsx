@@ -162,7 +162,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        <Toaster />
+        <Toaster position="top-right" />
       </div>
     </SidebarProvider>
   );

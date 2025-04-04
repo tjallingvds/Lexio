@@ -53,7 +53,7 @@ export default function Page() {
           <div className="flex-1 overflow-auto flex items-center justify-center">
             Creating new document...
           </div>
-          <Toaster />
+          <Toaster position="top-right" />
         </div>
       </SidebarProvider>
     );
@@ -72,7 +72,7 @@ export default function Page() {
           </SettingsProvider>
         </div>
 
-        <Toaster />
+        <Toaster position="top-right" />
       </div>
     </SidebarProvider>
   );
