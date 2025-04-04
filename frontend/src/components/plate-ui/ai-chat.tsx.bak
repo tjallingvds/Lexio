@@ -31,7 +31,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { PdfLibrary } from './pdf-library';
-import { extractTextFromPdf, sanitizePdfContent as pdfsanitize } from './pdf-utils';
+import { extractTextFromPdf, sanitizePdfContent } from './pdf-utils';
 import { 
   Tooltip,
   TooltipContent,
@@ -115,6 +115,41 @@ const loadMessages = (documentId: string | null): Message[] => {
 };
 
 // Helper function to sanitize PDF content to avoid sending binary/encoded data
+const sanitizePdfContent = (text: string): string => {
+  // First, detect if this contains PDF internal structures
+  const hasPdfStructure = /obj|endobj|stream|endstream|xref|trailer|startxref|\/Type|\/Page|\/Font|\/XObject|\/Filter/g.test(text);
+  
+  // Remove common PDF structure markers and binary data indicators
+  let cleaned = text
+    // Remove PDF internal structures
+    .replace(/\d+ \d+ obj[\s\S]*?endobj/g, '[PDF_OBJECT]')
+    .replace(/stream[\s\S]*?endstream/g, '[PDF_STREAM]')
+    .replace(/xref[\s\S]*?trailer/g, '[PDF_XREF]')
+    .replace(/startxref[\s\S]*?\d+/g, '[PDF_STARTXREF]')
+    // Remove encoded/compressed data markers 
+    .replace(/\/Filter\s*\/[A-Za-z0-9]+/g, '[FILTERED_CONTENT]')
+    .replace(/\/FlateDecode/g, '[COMPRESSED_DATA]')
+    .replace(/\/DCTDecode/g, '[JPEG_DATA]')
+    .replace(/\/JPXDecode/g, '[JPEG2000_DATA]')
+    // Clean up remaining binary data and non-printable characters
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+    
+  // If we detected PDF structure, add a note
+  if (hasPdfStructure) {
+    cleaned = "Note: This PDF contains encoded or compressed data that could not be fully extracted. The following is the text that could be parsed:\n\n" + cleaned;
+  }
+  
+  // Check if we have any meaningful content left
+  if (cleaned.length < 200) {
+    return "This PDF appears to contain mostly encoded or binary data that couldn't be properly extracted. Please try a different PDF file with readable text content.";
+  }
+  
+  return cleaned;
+};
 
 // Define our local PdfDocument type to have all the properties we need
 type PdfDocument = {
@@ -183,7 +218,7 @@ export function AiChat() {
         try {
           const extractedText = await extractTextFromPdf(pdf.file);
           // Clean text with sanitizer
-          const cleanedText = pdfsanitize(extractedText);
+          const cleanedText = sanitizePdfContent(extractedText);
           
           if (cleanedText && cleanedText.length > 0) {
             handleAddPdfToContext(pdf.id, pdf.name, cleanedText);
@@ -266,7 +301,7 @@ export function AiChat() {
         debugLog.push(`Extraction complete, text length: ${text?.length || 0}`);
         
         // Clean the text with sanitizer
-        text = pdfsanitize(text);
+        text = sanitizePdfContent(text);
         
         if (!text || text.length < 100) {
           throw new Error("No meaningful text could be extracted from this PDF. It may be scanned or contain only images.");
