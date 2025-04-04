@@ -266,7 +266,7 @@ export function EditorHeader({ documentId: propDocumentId }: EditorHeaderProps) 
   };
   
   return (
-    <div className="flex items-center justify-between border-b px-4 py-2 bg-white h-[41px]">
+    <div className="flex items-center justify-between border-b px-4 py-2 bg-white h-[41px] sticky top-0 z-50">
       <div className="flex items-center gap-2">
         <Button 
           variant="ghost" 

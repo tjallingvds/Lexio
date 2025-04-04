@@ -58,18 +58,32 @@ def get_vector_store():
         raise
 
 def extract_text_from_pdf(pdf_file_path: str) -> str:
-    """Extract text from PDF using PyMuPDF (simple, efficient approach)"""
+    """Extract text from PDF using PyMuPDF with improved handling for complete text capture"""
     text = ""
     
     try:
         with fitz.open(pdf_file_path) as doc:
+            # Log total pages for debugging
+            print(f"PDF has {len(doc)} pages")
+            
             for page_num in range(len(doc)):
                 page = doc[page_num]
-                text += page.get_text() + "\n\n"
+                
+                # Use 'text' format which preserves paragraphs better than default
+                page_text = page.get_text("text")
+                
+                # Add a page marker and the extracted text
+                text += f"Page {page_num + 1}:\n{page_text}\n\n"
+                
+                # Log the first and last page extraction stats for debugging
+                if page_num == 0 or page_num == len(doc) - 1:
+                    print(f"Page {page_num+1} extracted: {len(page_text)} chars")
     except Exception as e:
         print(f"Error extracting text from PDF: {e}")
         return ""
-        
+    
+    # Log total extraction size
+    print(f"Total extracted text size: {len(text)} characters")
     return text
 
 def save_pdf_text(pdf_id: str, text: str) -> str:

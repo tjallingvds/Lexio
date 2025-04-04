@@ -106,18 +106,26 @@ export async function extractTextWithFileReader(file: File): Promise<string> {
 }
 
 /**
- * Clean up extracted text
+ * Clean up extracted text while preserving structure
  */
 export function sanitizePdfContent(text: string): string {
   if (!text) return "";
   
-  // Simple cleanup
+  // Enhanced cleanup that preserves paragraphs and structure
   let cleaned = text
-    .replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+    // Remove null bytes and control characters but keep newlines
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+    // Replace non-ASCII characters with spaces
     .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
-    .replace(/\s+/g, ' ')
+    // Remove excessive spaces but preserve paragraph breaks
+    .replace(/[ \t]+/g, ' ')
+    // Preserve paragraph breaks (2+ newlines)
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
-    
+  
+  // Log output size for debugging
+  console.log(`PDF content sanitized: original ${text.length} chars, cleaned ${cleaned.length} chars`);
+  
   return cleaned || "No readable text found";
 }
 
@@ -149,19 +157,32 @@ export async function queryPdfContent(query: string, limit: number = 5): Promise
  */
 export async function getPdfContent(pdfId: string): Promise<string> {
   try {
+    console.log(`Retrieving content for PDF ID: ${pdfId}`);
+    
     const response = await fetch(`/api/pdf-content/${pdfId}`, {
       method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      },
     });
     
     const data = await response.json();
     
     if (response.ok && data.text) {
+      console.log(`Retrieved PDF content successfully: ${data.text.length} characters`);
+      
+      // Validate the content has reasonable length
+      if (data.text.length < 100) {
+        console.warn(`PDF content suspiciously short (${data.text.length} chars), may be incomplete`);
+      }
+      
       return data.text;
+    } else {
+      console.error("Error retrieving PDF content:", data.error || "Unknown error");
+      return "";
     }
-    
-    return "";
   } catch (error) {
-    console.error("Error retrieving PDF content:", error);
+    console.error("Exception retrieving PDF content:", error);
     return "";
   }
 } 

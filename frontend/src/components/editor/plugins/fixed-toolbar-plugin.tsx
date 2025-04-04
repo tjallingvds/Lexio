@@ -29,12 +29,12 @@ export const FixedToolbarPlugin = createPlatePlugin({
       }
       
       return (
-        <>
+        <div className="sticky top-0 z-50 bg-white">
           <EditorHeader documentId={documentId} />
           <FixedToolbar>
             <FixedToolbarButtons />
           </FixedToolbar>
-        </>
+        </div>
       );
     },
   },
