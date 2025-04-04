@@ -7,6 +7,10 @@ export interface Document {
   updated_at: string;
 }
 
+// Document cache with expiration to prevent loading incorrect content
+const documentCache: {[key: string]: {document: Document, timestamp: number}} = {};
+const CACHE_EXPIRATION_MS = 30 * 60 * 1000; // 30 minutes
+
 export async function fetchDocuments(): Promise<Document[]> {
   try {
     const response = await fetch(`${API_URL}/documents`);
@@ -23,11 +27,30 @@ export async function fetchDocuments(): Promise<Document[]> {
 
 export async function fetchDocument(id: string): Promise<Document | null> {
   try {
+    // Check cache first to prevent incorrect document loading
+    const cachedEntry = documentCache[id];
+    const now = Date.now();
+    
+    if (cachedEntry && (now - cachedEntry.timestamp < CACHE_EXPIRATION_MS)) {
+      console.log(`Using cached document for ID: ${id}`);
+      return cachedEntry.document;
+    }
+    
+    console.log(`Cache miss or expired for document ID: ${id}, fetching from server`);
     const response = await fetch(`${API_URL}/documents/${id}`);
     if (!response.ok) {
       throw new Error('Failed to fetch document');
     }
     const data = await response.json();
+    
+    // Cache the document for future requests
+    if (data.document) {
+      documentCache[id] = {
+        document: data.document,
+        timestamp: now
+      };
+    }
+    
     return data.document;
   } catch (error) {
     console.error(`Error fetching document ${id}:`, error);
@@ -106,6 +129,15 @@ export async function updateDocument(id: string, title?: string, content?: strin
     
     const data = await response.json();
     console.log('Document updated successfully:', data.document.id);
+    
+    // Update cache with the latest document
+    if (data.document) {
+      documentCache[id] = {
+        document: data.document,
+        timestamp: Date.now()
+      };
+    }
+    
     return data.document;
   } catch (error) {
     console.error('Error updating document:', error);
