@@ -17,10 +17,18 @@ export async function POST(req: Request) {
     // Use the provided API key or fallback to environment variable
     const apiKey = body.apiKey || process.env.OPENAI_API_KEY;
     
+    // Enhanced logging for API key
+    console.log('API key provided in request:', !!body.apiKey);
+    console.log('Environment API key available:', !!process.env.OPENAI_API_KEY);
+    console.log('Final API key available:', !!apiKey);
+    
     if (!apiKey) {
       console.error('Missing API key in request');
       return new Response(
-        JSON.stringify({ error: 'Missing OpenAI API key' }),
+        JSON.stringify({ 
+          error: 'Missing OpenAI API key',
+          details: 'No API key provided in request or available in environment variables'
+        }),
         { 
           status: 401, 
           headers: { 
@@ -51,7 +59,7 @@ export async function POST(req: Request) {
     }
     
     // Initialize OpenAI client
-    const openai = createOpenAI({ apiKey });
+    const openai = createOpenAI({ apiKey: apiKey });
     
     try {
       // Stream the response using the Vercel AI SDK
