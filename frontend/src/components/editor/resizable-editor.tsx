@@ -35,7 +35,7 @@ export function ResizableEditor({ documentId }: ResizableEditorProps) {
       <ResizablePanel 
         defaultSize={70} 
         minSize={30}
-        className="h-full overflow-auto bg-white"
+        className="h-full flex flex-col bg-white"
       >
         <PlateEditor ref={editorRef} onForceSave={handleForceSave} documentId={documentId} />
       </ResizablePanel>
@@ -46,7 +46,7 @@ export function ResizableEditor({ documentId }: ResizableEditorProps) {
         defaultSize={30} 
         minSize={20}
         maxSize={50}
-        className="h-full"
+        className="h-full flex flex-col"
       >
         <AiChat />
       </ResizablePanel>

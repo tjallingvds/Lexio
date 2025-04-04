@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useEffect, useState, KeyboardEvent, useRef } from 'react';
-import { PanelLeftIcon, Save } from 'lucide-react';
+import { PanelLeftIcon, Save, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { updateDocument, fetchDocument } from '@/lib/api';
 import { useEditorRef } from '@udecode/plate/react';
+import { SaveState } from '@/components/editor/plate-editor';
 
 interface EditorHeaderProps {
   documentId?: string;
@@ -83,6 +84,26 @@ export function EditorHeader({ documentId: propDocumentId }: EditorHeaderProps) 
   const [loading, setLoading] = useState(false);
   const editor = useEditorRef();
   const firstTitleLoad = useRef(true);
+  const [saveState, setSaveState] = useState<SaveState>(SaveState.Saved);
+  
+  // Monitor global save state
+  useEffect(() => {
+    const checkSaveState = () => {
+      if (typeof window !== 'undefined' && (window as any).__documentSaveState) {
+        setSaveState((window as any).__documentSaveState);
+      }
+    };
+    
+    // Check initially
+    checkSaveState();
+    
+    // Set up interval to check periodically
+    const interval = setInterval(checkSaveState, 500);
+    
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
   
   // Ensure editor reference is valid
   useEffect(() => {
@@ -162,7 +183,7 @@ export function EditorHeader({ documentId: propDocumentId }: EditorHeaderProps) 
     // Try to use global force save method if available (added by PlateEditor)
     if (typeof window !== 'undefined' && (window as any).__forceSave) {
       console.log('Using global __forceSave method');
-      (window as any).__forceSave();
+      (window as any).__forceSave(); // This will handle showing toast messages
       return;
     }
     
@@ -191,23 +212,56 @@ export function EditorHeader({ documentId: propDocumentId }: EditorHeaderProps) 
       
       if (result) {
         console.log('Save successful, document:', result.id);
+        setSaveState(SaveState.Saved);
         if (showToast) {
           // Force toast to show
           toast.success('Document saved successfully');
         }
       } else {
         console.error('No result returned from update for document:', effectiveId);
+        setSaveState(SaveState.Failed);
         if (showToast) {
           toast.error('Error saving document');
         }
       }
     } catch (error) {
       console.error('Error saving document:', error);
+      setSaveState(SaveState.Failed);
       if (showToast) {
         toast.error('Failed to save document');
       }
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Get save indicator based on save state
+  const getSaveIndicator = () => {
+    switch (saveState) {
+      case SaveState.Saved:
+        return <Check className="h-3.5 w-3.5 mr-1 text-green-500" />;
+      case SaveState.Saving:
+        return <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />;
+      case SaveState.Failed:
+        return <AlertCircle className="h-3.5 w-3.5 mr-1 text-red-500" />;
+      case SaveState.Unsaved:
+      default:
+        return <Save className="h-3.5 w-3.5 mr-1" />;
+    }
+  };
+  
+  // Get button text based on save state
+  const getSaveButtonText = () => {
+    switch (saveState) {
+      case SaveState.Saved:
+        return "Saved";
+      case SaveState.Saving:
+        return "Saving...";
+      case SaveState.Failed:
+        return "Retry";
+      case SaveState.Unsaved:
+      default:
+        return "Save";
     }
   };
   
@@ -249,14 +303,17 @@ export function EditorHeader({ documentId: propDocumentId }: EditorHeaderProps) 
         />
       </div>
       <Button
-        variant="ghost"
+        variant={saveState === SaveState.Unsaved ? "default" : "ghost"}
         size="sm"
         onClick={() => saveDocument(true)}
-        disabled={loading}
-        className="text-xs"
+        disabled={loading || saveState === SaveState.Saving}
+        className={cn(
+          "text-xs min-w-[80px]",
+          saveState === SaveState.Unsaved && "bg-black hover:bg-gray-800"
+        )}
       >
-        <Save className="h-3.5 w-3.5 mr-1" />
-        Save
+        {getSaveIndicator()}
+        {getSaveButtonText()}
       </Button>
     </div>
   );

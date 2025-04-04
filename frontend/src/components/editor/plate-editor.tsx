@@ -15,6 +15,14 @@ import { SettingsDialog } from '@/components/editor/settings';
 import { Editor, EditorContainer } from '@/components/plate-ui/editor';
 import { updateDocument, fetchDocument } from '@/lib/api';
 
+// Save states for tracking
+export enum SaveState {
+  Saved = 'saved',
+  Saving = 'saving',
+  Unsaved = 'unsaved',
+  Failed = 'failed'
+}
+
 export interface PlateEditorProps {
   onForceSave?: () => void;
   documentId?: string | null;
@@ -111,40 +119,85 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
     const [content, setContent] = useState<Value | null>(null);
     const firstLoad = useRef(true);
     const initialSaveDone = useRef(false);
+    const [saveState, setSaveState] = useState<SaveState>(SaveState.Saved);
+    const pendingSave = useRef<Value | null>(null);
+    const saveQueue = useRef<Value[]>([]);
+    const isSaving = useRef(false);
+    const lastSavedContent = useRef<string>('');
+    const currentDocumentId = useRef<string | null>(null);
     
     console.log('PlateEditor rendering with document ID:', id, 'isNewDocument:', isNewDocument);
     
     // Create editor
     const editor = useCreateEditor();
     
-    // Save content function
-    const saveContent = useCallback(async (contentValue: Value) => {
-      // Final ID check with emergency extraction if still not found
-      let effectiveId = id;
+    // Flag to track if we've loaded real content
+    const hasLoadedRealContent = useRef(false);
+    
+    // Process save queue
+    const processSaveQueue = useCallback(async (isManualSave = false) => {
+      if (isSaving.current || saveQueue.current.length === 0) {
+        return;
+      }
       
+      // Get the most reliable ID
+      let effectiveId = id;
       if (!effectiveId) {
         // Try all possible sources for the document ID
         effectiveId = propDocumentId || getIdFromPath() || getIdFromLocalStorage() || getIdFromGlobalVar();
-        console.log("EMERGENCY ID EXTRACTION in saveContent:", effectiveId);
+        console.log("EMERGENCY ID EXTRACTION in processSaveQueue:", effectiveId);
       }
+      
+      // Ensure we're saving to the correct document
+      if (currentDocumentId.current && effectiveId !== currentDocumentId.current) {
+        console.error(`Document ID mismatch! Expected: ${currentDocumentId.current}, Got: ${effectiveId}`);
+        
+        // Handle the ID mismatch - reload the correct document
+        if (currentDocumentId.current) {
+          console.warn(`Document ID mismatch detected - saving cancelled. Current: ${currentDocumentId.current}, Attempted: ${effectiveId}`);
+          setSaveState(SaveState.Failed);
+          toast.error("Document ID mismatch detected. Please reload the page.");
+          return;
+        }
+      }
+      
+      isSaving.current = true;
+      setSaveState(SaveState.Saving);
+      
+      // Take the latest content from the queue
+      const contentToSave = saveQueue.current[saveQueue.current.length - 1];
+      saveQueue.current = []; // Clear the queue since we're taking the latest
       
       if (!effectiveId) {
         console.error('Cannot save - no document ID available after multiple attempts');
-        toast.error('Cannot save - document ID not found');
+        if (isManualSave) {
+          toast.error('Cannot save - document ID not found');
+        }
+        setSaveState(SaveState.Failed);
+        isSaving.current = false;
         return;
       }
       
       try {
         console.log('Saving content to document ID:', effectiveId);
-        const contentString = JSON.stringify(contentValue);
+        const contentString = JSON.stringify(contentToSave);
+        
+        // Store this as the last saved content
+        lastSavedContent.current = contentString;
         
         // Try to get current title to preserve it
         let currentTitle;
         try {
-          // First try to load the current title from the document
-          const document = await fetchDocument(effectiveId);
-          if (document && document.title) {
-            currentTitle = document.title;
+          // First try to find the title in the DOM
+          const titleInput = document.querySelector('.editor-header-title') as HTMLInputElement;
+          if (titleInput && titleInput.value) {
+            currentTitle = titleInput.value;
+          } else {
+            // If not found in DOM, try to load from server
+            const document = await fetchDocument(effectiveId);
+            if (document && document.title) {
+              currentTitle = document.title;
+            }
           }
         } catch (err) {
           console.error('Error fetching current title:', err);
@@ -159,14 +212,69 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
         
         if (result) {
           console.log('Content saved successfully to document ID:', effectiveId, result);
+          setSaveState(SaveState.Saved);
+          
+          // Share save state globally
+          if (typeof window !== 'undefined') {
+            (window as any).__documentSaveState = SaveState.Saved;
+          }
+          
+          // Only show success toast for manual saves
+          if (isManualSave) {
+            toast.success('Document saved');
+          }
         } else {
           console.error('Failed to save content, no result returned for document ID:', effectiveId);
+          setSaveState(SaveState.Failed);
+          if (isManualSave) {
+            toast.error('Failed to save document');
+          }
         }
       } catch (error) {
         console.error('Error saving content to document ID:', effectiveId, error);
-        toast.error('Failed to save content');
+        if (isManualSave) {
+          toast.error('Failed to save content');
+        }
+        setSaveState(SaveState.Failed);
+      } finally {
+        isSaving.current = false;
+        
+        // Process any new items that were added to the queue while we were saving
+        if (saveQueue.current.length > 0) {
+          processSaveQueue(isManualSave);
+        }
       }
     }, [id, getIdFromPath, propDocumentId, getIdFromLocalStorage, getIdFromGlobalVar]);
+    
+    // Queue content for saving
+    const queueContentForSave = useCallback((contentValue: Value, isManualSave = false) => {
+      // For auto-saves, check if content has actually changed
+      if (!isManualSave) {
+        const contentString = JSON.stringify(contentValue);
+        if (contentString === lastSavedContent.current) {
+          console.log('Content unchanged, skipping save');
+          return;
+        }
+      }
+      
+      saveQueue.current.push(contentValue);
+      setSaveState(SaveState.Unsaved);
+      
+      // Share save state globally
+      if (typeof window !== 'undefined') {
+        (window as any).__documentSaveState = SaveState.Unsaved;
+      }
+      
+      // Start processing the queue if not already processing
+      if (!isSaving.current) {
+        processSaveQueue(isManualSave);
+      }
+    }, [processSaveQueue]);
+    
+    // Save content function - now queues save operations
+    const saveContent = useCallback(async (contentValue: Value, isManualSave = false) => {
+      queueContentForSave(contentValue, isManualSave);
+    }, [queueContentForSave]);
     
     // Helper function to initialize with empty content
     const initializeWithEmptyContent = useCallback(() => {
@@ -180,22 +288,35 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
       
       console.log('Initializing with empty content for document ID:', effectiveId);
       
+      // Ensure we create a standard, clean empty paragraph
       const emptyContent = [{
         type: 'p',
         children: [{ text: '' }],
       }];
       
       if (editor) {
+        // Make sure we're not inheriting any unexpected cached content
         console.log('Setting editor children to empty content');
+        
+        // Clear the editor completely before setting empty content
+        if (editor.children && editor.children.length > 0) {
+          editor.children = [];
+        }
+        
+        // Apply our empty content template
         editor.children = emptyContent;
         setContent(emptyContent);
+        
+        // Reset the flag since we're now using empty content
+        hasLoadedRealContent.current = false;
         
         // Also save this empty content to avoid issues later
         if (effectiveId) {
           console.log('Saving empty content to document ID:', effectiveId);
           // Ensure we're using the latest editor instance by getting children directly
           const contentToSave = editor.children;
-          saveContent(contentToSave);
+          lastSavedContent.current = JSON.stringify(contentToSave);
+          saveContent(contentToSave, false);
         } else {
           console.error('Cannot save empty content - no document ID available');
         }
@@ -212,6 +333,12 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
         // Try all possible sources for the document ID
         effectiveId = propDocumentId || getIdFromPath() || getIdFromLocalStorage() || getIdFromGlobalVar();
         console.log("EMERGENCY ID EXTRACTION in document loading:", effectiveId);
+      }
+      
+      // Set the current document ID as soon as we know it
+      if (effectiveId) {
+        currentDocumentId.current = effectiveId;
+        console.log('Set current document ID reference:', effectiveId);
       }
       
       if (effectiveId && firstLoad.current) {
@@ -231,13 +358,45 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
                   const parsedContent = JSON.parse(document.content);
                   console.log('Parsed content successfully:', parsedContent);
                   
-                  // Update the editor content
-                  if (editor) {
-                    console.log('Setting editor children:', parsedContent);
-                    editor.children = parsedContent;
-                    setContent(parsedContent);
+                  // ENHANCED VALIDATION: Check for playground content signatures before using
+                  const contentString = JSON.stringify(parsedContent);
+                  const playgroundSignatures = [
+                    'playground',
+                    'example content',
+                    'sample text',
+                    'template'
+                  ];
+                  
+                  const hasPlaygroundContent = playgroundSignatures.some(signature => 
+                    contentString.toLowerCase().includes(signature.toLowerCase())
+                  );
+                  
+                  if (hasPlaygroundContent) {
+                    console.error('Detected playground content in loaded document, refusing to use it');
+                    initializeWithEmptyContent();
+                    return;
+                  }
+                  
+                  // Validate the content structure to ensure it's not corrupted
+                  const isValidContent = Array.isArray(parsedContent) && 
+                                        parsedContent.length > 0 && 
+                                        parsedContent.every(node => typeof node === 'object' && node.type);
+                  
+                  if (isValidContent) {
+                    // Update the editor content only if valid
+                    if (editor) {
+                      console.log('Setting editor children:', parsedContent);
+                      editor.children = parsedContent;
+                      setContent(parsedContent);
+                      lastSavedContent.current = JSON.stringify(parsedContent);
+                      hasLoadedRealContent.current = true; // Mark that we've loaded real content
+                    } else {
+                      console.error('Editor reference not available when loading content');
+                      initializeWithEmptyContent(); // Fall back to empty content
+                    }
                   } else {
-                    console.error('Editor reference not available when loading content');
+                    console.error('Invalid content structure, falling back to empty content');
+                    initializeWithEmptyContent();
                   }
                 } catch (parseError) {
                   console.error('Error parsing JSON content:', parseError);
@@ -269,6 +428,7 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
       } else if (!effectiveId) {
         console.log('Skipping document load - no ID available. Setting isLoading to false.');
         setIsLoading(false);
+        initializeWithEmptyContent(); // Initialize with empty content rather than showing nothing
       } else if (!firstLoad.current) {
         console.log('Skipping document load - not first load. ID:', effectiveId);
         setIsLoading(false);
@@ -280,20 +440,72 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
     // Monitor for changes in the editor and save
     useEffect(() => {
       if (editor && id) {
-        // Send initial content to AI chat
-        if (editor.children) {
-          window.postMessage(
-            { 
-              type: 'editor-content', 
-              content: JSON.stringify(editor.children)
-            }, 
-            window.location.origin
+        // Only send content to AI chat after we're sure it's been loaded from the server
+        if (editor.children && !isLoading && !firstLoad.current) {
+          // Make sure we're not sending playground content
+          const contentString = JSON.stringify(editor.children);
+          const playgroundSignatures = [
+            'playground',
+            'example content',
+            'sample text',
+            'template'
+          ];
+          
+          const hasPlaygroundContent = playgroundSignatures.some(signature => 
+            contentString.toLowerCase().includes(signature.toLowerCase())
           );
+          
+          if (!hasPlaygroundContent) {
+            console.log('Sending loaded document content to AI chat');
+            window.postMessage(
+              { 
+                type: 'editor-content', 
+                content: contentString
+              }, 
+              window.location.origin
+            );
+          }
         }
       }
-    }, [editor, id]);
+    }, [editor, id, isLoading, firstLoad]);
     
-    // Handle editor content changes
+    // Add document ID change detection
+    useEffect(() => {
+      // If we already have a current document ID and it suddenly changes, that's suspicious
+      if (currentDocumentId.current && id && currentDocumentId.current !== id) {
+        console.error(`Document ID changed unexpectedly from ${currentDocumentId.current} to ${id}`);
+        toast.error("Document ID changed unexpectedly. Please reload the page.");
+      }
+    }, [id]);
+    
+    // Override the useState hook for content to add protection
+    const safeSetContent = (newContent: Value | null) => {
+      // Skip if the content is null or undefined (shouldn't happen)
+      if (!newContent) return;
+      
+      // If we have a playground signature, prevent the content from being set
+      const contentString = JSON.stringify(newContent);
+      const playgroundSignatures = [
+        'playground',
+        'example content',
+        'sample text',
+        'template'
+      ];
+      
+      const hasPlaygroundContent = playgroundSignatures.some(signature => 
+        contentString.toLowerCase().includes(signature.toLowerCase())
+      );
+      
+      if (hasPlaygroundContent) {
+        console.warn('Blocked attempt to set playground content');
+        return;
+      }
+      
+      // Otherwise proceed with setting content
+      setContent(newContent);
+    };
+    
+    // Modify handleEditorChange to use safeSetContent
     const handleEditorChange = useCallback(
       (options: { editor: any; value: Value }) => {
         const { value } = options;
@@ -301,64 +513,126 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
         // Log every change for debugging
         console.log('Editor onChange triggered with value:', value);
         
-        // Use debounce to avoid too frequent saves
-        const debouncedSave = debounce(() => {
-          console.log('Debounced save running for value:', value);
-          setContent(value);
-          saveContent(value);
+        // Extra protection: If we've loaded real content, check for suspicious changes
+        if (hasLoadedRealContent.current) {
+          const contentString = JSON.stringify(value);
+          const playgroundSignatures = [
+            'playground',
+            'example content',
+            'sample text',
+            'template'
+          ];
           
-          // Send content to AI chat via window messaging
-          window.postMessage(
-            { 
-              type: 'editor-content', 
-              content: JSON.stringify(value)
-            }, 
-            window.location.origin
+          const hasPlaygroundContent = playgroundSignatures.some(signature => 
+            contentString.toLowerCase().includes(signature.toLowerCase())
           );
-        }, 1000);
+          
+          if (hasPlaygroundContent) {
+            console.error('CRITICAL: Blocked attempt to replace real content with playground content');
+            // Restore last known good content if available
+            if (lastSavedContent.current) {
+              try {
+                const lastGoodContent = JSON.parse(lastSavedContent.current);
+                if (editor) {
+                  console.log('Restoring last good content');
+                  editor.children = lastGoodContent;
+                  setContent(lastGoodContent);
+                }
+              } catch (e) {
+                console.error('Error restoring content:', e);
+              }
+            }
+            return;
+          }
+        }
         
-        debouncedSave();
+        // Use safe function instead of directly setting content
+        safeSetContent(value);
         
-        // Make sure to cancel the debounced function on component unmount
-        return () => {
-          debouncedSave.cancel();
-        };
+        // Store the pending save content
+        pendingSave.current = value;
+        
+        // Check if content has changed from last saved content
+        const contentString = JSON.stringify(value);
+        if (contentString !== lastSavedContent.current) {
+          // Mark as unsaved immediately
+          setSaveState(SaveState.Unsaved);
+          
+          // Share save state globally
+          if (typeof window !== 'undefined') {
+            (window as any).__documentSaveState = SaveState.Unsaved;
+          }
+          
+          // Use debounce to avoid too frequent saves
+          const debouncedSave = debounce(() => {
+            console.log('Debounced save running for value:', pendingSave.current);
+            if (pendingSave.current) {
+              saveContent(pendingSave.current, false); // Not a manual save
+              
+              // Send content to AI chat via window messaging
+              window.postMessage(
+                { 
+                  type: 'editor-content', 
+                  content: JSON.stringify(pendingSave.current)
+                }, 
+                window.location.origin
+              );
+              
+              // Clear pending save
+              pendingSave.current = null;
+            }
+          }, 1000);
+          
+          debouncedSave();
+          
+          // Make sure to cancel the debounced function on component unmount
+          return () => {
+            // If we have a pending save that's being cancelled, queue it now
+            if (pendingSave.current) {
+              console.log('Saving pending content before cancel');
+              saveContent(pendingSave.current, false);
+              pendingSave.current = null;
+            }
+            debouncedSave.cancel();
+          };
+        }
+        
+        // No cleanup needed if no changes
+        return undefined;
       },
-      [id, saveContent, getIdFromLocalStorage, getIdFromGlobalVar]
+      [saveContent]
     );
+
+    // Force immediate save
+    const forceSave = useCallback(() => {
+      if (!editor || !id) {
+        console.error('Cannot forceSave - editor or ID not available');
+        toast.error('Cannot save - editor not ready');
+        return;
+      }
+      
+      console.log('forceSave triggered for document ID:', id);
+      const currentContent = editor.children;
+      
+      // Clear queue and immediately save this content
+      saveQueue.current = [currentContent];
+      processSaveQueue(true); // This is a manual save
+      
+      // Call the provided callback if any
+      if (onForceSave) {
+        onForceSave();
+      }
+    }, [editor, id, onForceSave, processSaveQueue]);
 
     // Expose methods via ref
     React.useImperativeHandle(ref, () => ({
-      forceSave: () => {
-        if (editor && id) {
-          console.log('forceSave triggered via ref for document ID:', id);
-          const currentContent = editor.children;
-          saveContent(currentContent);
-          toast.success('Document saved');
-          
-          // Also call the onForceSave prop if provided
-          if (onForceSave) {
-            onForceSave();
-          }
-        } else {
-          console.error('Cannot forceSave - editor or ID not available');
-          toast.error('Cannot save - editor not ready');
-        }
-      }
-    }), [editor, id, saveContent, onForceSave]);
+      forceSave
+    }), [forceSave]);
     
-    // Manual save function - implement directly
+    // Manual save function - calls the Force Save
     const manualSave = useCallback(() => {
-      if (editor && editor.children && id) {
-        console.log('Manual save triggered with content length:', editor.children.length);
-        const currentContent = editor.children;
-        saveContent(currentContent);
-        toast.success('Document saved');
-      } else {
-        console.error('Manual save failed - missing editor, content or document ID');
-        toast.error('Could not save - editor not ready');
-      }
-    }, [editor, id, saveContent]);
+      forceSave();
+    }, [forceSave]);
     
     // Add a keyboard shortcut for saving (Cmd+S or Ctrl+S)
     useEffect(() => {
@@ -393,7 +667,7 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
         const timer = setTimeout(() => {
           if (editor.children) {
             console.log('Performing initial save for new document:', effectiveId);
-            saveContent(editor.children);
+            saveContent(editor.children, true);
             initialSaveDone.current = true;
             
             // Store document ID in localStorage for fallback
@@ -431,72 +705,69 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
     // Expose forceSave method globally for header to use
     useEffect(() => {
       if (typeof window !== 'undefined' && editor) {
-        const getFinalId = () => {
-          // Use all available methods to get the ID, in order of reliability
-          let finalId = id;
-          if (!finalId) {
-            finalId = propDocumentId || getIdFromPath() || getIdFromLocalStorage() || getIdFromGlobalVar();
-            console.log("EMERGENCY ID EXTRACTION in global forceSave:", finalId);
-          }
-          return finalId;
-        };
-        
         console.log('Exposing forceSave method globally');
-        (window as any).__forceSave = () => {
-          const finalId = getFinalId();
-          if (!finalId) {
-            console.error('Global forceSave: Cannot save - no document ID available');
-            toast.error('Cannot save - document ID not found');
-            return;
-          }
-          
-          console.log('Global forceSave called for document ID:', finalId);
-          const currentContent = editor.children;
-          
-          // Get current title from document if available
-          let currentTitle;
-          try {
-            // Try to find the title input field in the EditorHeader
-            const titleInput = document.querySelector('.editor-header-title') as HTMLInputElement;
-            if (titleInput && titleInput.value) {
-              currentTitle = titleInput.value;
-              console.log('Found document title for saving:', currentTitle);
-            }
-          } catch (e) {
-            console.error('Error getting document title:', e);
-          }
-          
-          // Use the current title if available, otherwise just save content
-          if (currentTitle) {
-            // Save both title and content
-            updateDocument(finalId, currentTitle, JSON.stringify(currentContent))
-              .then(result => {
-                if (result) {
-                  console.log('Content and title saved successfully');
-                  toast.success('Document saved');
-                } else {
-                  console.error('Failed to save document');
-                  toast.error('Failed to save document');
-                }
-              })
-              .catch(err => {
-                console.error('Error saving document:', err);
-                toast.error('Failed to save document');
-              });
-          } else {
-            // Just save content
-            saveContent(currentContent);
-            toast.success('Document saved');
-          }
-        };
+        (window as any).__forceSave = forceSave;
+        
+        // Also expose the save state
+        (window as any).__documentSaveState = saveState;
       }
       
       return () => {
         if (typeof window !== 'undefined') {
           delete (window as any).__forceSave;
+          delete (window as any).__documentSaveState;
         }
       };
-    }, [editor, id, saveContent, getIdFromPath, propDocumentId, getIdFromLocalStorage, getIdFromGlobalVar]);
+    }, [editor, forceSave, saveState]);
+
+    // Save before unload to prevent data loss
+    useEffect(() => {
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        if (saveState === SaveState.Unsaved) {
+          // Force save content before page unload
+          if (editor && pendingSave.current) {
+            queueContentForSave(pendingSave.current, true);
+          } else if (editor && editor.children) {
+            queueContentForSave(editor.children, true);
+          }
+          
+          // Standard way to show "unsaved changes" dialog
+          e.preventDefault();
+          e.returnValue = '';
+          return '';
+        }
+      };
+      
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+      };
+    }, [editor, saveState, queueContentForSave]);
+
+    // Add a function to watch for unwanted content and reset if needed
+    useEffect(() => {
+      if (!editor || !content) return;
+      
+      // Check if content looks like unexpected "playground" content
+      const contentString = JSON.stringify(content);
+      
+      // Look for playground signatures (add more if you discover specific patterns)
+      const playgroundSignatures = [
+        'playground',
+        'example content',
+        'sample text',
+        'template'
+      ];
+      
+      const hasPlaygroundContent = playgroundSignatures.some(signature => 
+        contentString.toLowerCase().includes(signature.toLowerCase())
+      );
+      
+      if (hasPlaygroundContent) {
+        console.warn('Detected potential playground content, resetting to empty document');
+        initializeWithEmptyContent();
+      }
+    }, [content, editor, initializeWithEmptyContent]);
 
     if (isLoading) {
       return <div className="flex items-center justify-center h-full">Loading document...</div>;

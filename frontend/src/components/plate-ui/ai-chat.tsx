@@ -97,7 +97,23 @@ export function AiChat() {
     const handleEditorContent = (event: MessageEvent) => {
       if (event.data && event.data.type === 'editor-content') {
         console.log('Received editor content');
-        setDocumentContent(event.data.content);
+        try {
+          // Validate that this isn't playground content
+          const content = event.data.content;
+          const contentObj = JSON.parse(content);
+          
+          // Check if this looks like placeholder content
+          const isPlaceholder = JSON.stringify(contentObj).toLowerCase().includes('playground');
+          
+          if (!isPlaceholder) {
+            console.log('Setting valid document content');
+            setDocumentContent(content);
+          } else {
+            console.warn('Received playground content, ignoring');
+          }
+        } catch (e) {
+          console.error('Error processing editor content:', e);
+        }
       }
     };
 
@@ -327,7 +343,9 @@ export function AiChat() {
 Here is the current document content:
 \`\`\`
 ${formattedContent}
-\`\`\``;
+\`\`\`
+
+If asked to read the document, you should summarize the content above. Always base your responses strictly on this document content, not on any previous or default content. Avoid mentioning 'Playground' unless it's actually part of the document content.`;
 
     // Set thinking state and interaction flag
     setThinking(true);
@@ -379,12 +397,12 @@ ${formattedContent}
   };
 
   return (
-    <div className="flex h-full w-full flex-col bg-white">
-      <div className="flex items-center border-b px-4 py-2 bg-white h-[41px]">
+    <div className="flex flex-col h-full">
+      <div className="border-b px-4 py-2 bg-white sticky top-0 z-10 h-[41px] flex items-center">
         <h3 className="font-medium">AI Assistant</h3>
       </div>
       
-      <ScrollArea className="flex-1 p-4 bg-white">
+      <ScrollArea className="flex-1 p-4 bg-white overflow-auto">
         <div className="flex flex-col space-y-4">
           {messages.map((message) => (
             <div
@@ -440,7 +458,7 @@ ${formattedContent}
         </div>
       </ScrollArea>
       
-      <div className="border-t p-4 bg-white">
+      <div className="border-t p-4 bg-white sticky bottom-0 z-10">
         <div className="flex items-center mb-2">
           <Button 
             variant="ghost" 

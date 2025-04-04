@@ -190,17 +190,7 @@ export const useCreateEditor = (
       ],
       value: [
         {
-          children: [{ text: 'Playground' }],
-          type: 'h1',
-        },
-        {
-          children: [
-            { text: 'A rich-text editor with AI capabilities. Try the ' },
-            { bold: true, text: 'AI commands' },
-            { text: ' or use ' },
-            { kbd: true, text: 'Cmd+J' },
-            { text: ' to open the AI menu.' },
-          ],
+          children: [{ text: '' }],
           type: ParagraphPlugin.key,
         },
       ],
