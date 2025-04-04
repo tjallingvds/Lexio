@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -9,9 +9,26 @@ import {
 
 import { PlateEditor } from '@/components/editor/plate-editor';
 import { AiChat } from '@/components/plate-ui/ai-chat';
+import { toast } from 'sonner';
 
-export function ResizableEditor() {
+interface ResizableEditorProps {
+  documentId?: string | null;
+}
+
+export function ResizableEditor({ documentId }: ResizableEditorProps) {
   const [chatOpen, setChatOpen] = React.useState(true);
+  const editorRef = useRef<{ forceSave?: () => void }>(null);
+
+  // Handler to force save document
+  const handleForceSave = () => {
+    if (editorRef.current && editorRef.current.forceSave) {
+      console.log('Triggering force save from ResizableEditor with document ID:', documentId);
+      editorRef.current.forceSave();
+    } else {
+      console.error('Force save not available - editor ref not properly set up');
+      toast.error('Cannot save right now');
+    }
+  };
 
   return (
     <ResizablePanelGroup direction="horizontal" className="h-full w-full">
@@ -20,7 +37,7 @@ export function ResizableEditor() {
         minSize={30}
         className="h-full overflow-auto bg-white"
       >
-        <PlateEditor />
+        <PlateEditor ref={editorRef} onForceSave={handleForceSave} documentId={documentId} />
       </ResizablePanel>
       
       <ResizableHandle withHandle />

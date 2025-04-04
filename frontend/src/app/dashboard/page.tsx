@@ -3,10 +3,11 @@
 import { Toaster } from 'sonner';
 import { FileUp, Pencil, Mic } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Document, fetchDocuments } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { PlusIcon } from '@radix-ui/react-icons';
+import { Plus as PlusIcon } from 'lucide-react';
+import { createAndOpenDocument } from '@/lib/document-utils';
 
 import { AppSidebar } from '@/components/app-sidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -16,6 +17,8 @@ import { Input } from '@/components/ui/input';
 export default function DashboardPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const navigate = useNavigate();
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -46,6 +49,20 @@ export default function DashboardPage() {
       window.removeEventListener('focus', handleFocus);
     };
   }, []);
+
+  // New handler for document creation
+  const handleCreateDocument = async () => {
+    setIsCreating(true);
+    try {
+      const documentId = await createAndOpenDocument();
+      if (documentId) {
+        // Navigate only after document is created and IDs are stored
+        navigate(`/editor/${documentId}?new=true`);
+      }
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   return (
     <SidebarProvider>
@@ -111,12 +128,10 @@ export default function DashboardPage() {
             <div className="mt-8">
               <h2 className="text-2xl font-bold mb-4">Your Documents</h2>
               <div className="flex justify-between items-center mb-6">
-                <Link to="/editor">
-                  <Button>
-                    <PlusIcon className="mr-2 h-4 w-4" />
-                    New Document
-                  </Button>
-                </Link>
+                <Button onClick={handleCreateDocument} disabled={isCreating}>
+                  <PlusIcon className="mr-2 h-4 w-4" />
+                  {isCreating ? 'Creating...' : 'New Document'}
+                </Button>
               </div>
 
               {loading ? (
@@ -124,9 +139,9 @@ export default function DashboardPage() {
               ) : documents.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-gray-500 mb-4">You don't have any documents yet.</p>
-                  <Link to="/editor">
-                    <Button>Create your first document</Button>
-                  </Link>
+                  <Button onClick={handleCreateDocument} disabled={isCreating}>
+                    {isCreating ? 'Creating...' : 'Create your first document'}
+                  </Button>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

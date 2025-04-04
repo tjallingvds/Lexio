@@ -3,6 +3,8 @@
 import { ChevronRight, FilePlus, LayoutDashboard, Files, Home, Plus, type LucideIcon, FileText } from "lucide-react"
 import { useState, useEffect } from 'react';
 import { Document, fetchDocuments } from '@/lib/api';
+import { useNavigate } from 'react-router-dom';
+import { createAndOpenDocument } from '@/lib/document-utils';
 
 import {
   Collapsible,
@@ -38,11 +40,17 @@ export function NavMain({
 }) {
   const [recentDocuments, setRecentDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isCreating, setIsCreating] = useState(false);
+  const navigate = useNavigate();
 
   const loadDocuments = async () => {
     try {
       const docs = await fetchDocuments();
-      setRecentDocuments(docs.slice(0, 3)); // Get the 3 most recent documents
+      // Sort documents by updated_at date (most recent first) and take the 6 most recent
+      const sortedDocs = docs.sort((a, b) => 
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      ).slice(0, 6);
+      setRecentDocuments(sortedDocs);
     } catch (error) {
       console.error('Failed to load documents:', error);
     } finally {
@@ -66,6 +74,21 @@ export function NavMain({
       window.removeEventListener('focus', handleFocus);
     };
   }, []);
+
+  // New handler for document creation
+  const handleCreateDocument = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsCreating(true);
+    try {
+      const documentId = await createAndOpenDocument();
+      if (documentId) {
+        // Navigate only after document is created and IDs are stored
+        navigate(`/editor/${documentId}?new=true`);
+      }
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   return (
     <>
@@ -98,12 +121,11 @@ export function NavMain({
             variant="ghost" 
             size="icon" 
             className="h-5 w-5 -mt-0.5 mr-2" 
-            asChild
             title="New document"
+            onClick={handleCreateDocument}
+            disabled={isCreating}
           >
-            <a href="/editor" onClick={(e) => { e.preventDefault(); window.location.href = "/editor"; }}>
-              <Plus className="h-4 w-4" />
-            </a>
+            <Plus className="h-4 w-4" />
           </Button>
         </div>
         <SidebarMenu>
