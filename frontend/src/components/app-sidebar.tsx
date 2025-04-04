@@ -159,11 +159,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarMenuButton size="lg" asChild>
               <a href="#">
                 <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Command className="size-4" />
+                  <img 
+                    src="https://media.licdn.com/dms/image/v2/C4D0BAQFTKRTCkO4T7w/company-logo_200_200/company-logo_200_200/0/1647449860106/minerva_project_logo?e=2147483647&v=beta&t=JzigXJbJY-Gj01BwmByIUwRLE7IoaB9hCUykYX-SDI0" 
+                    alt="Minerva University Logo" 
+                    className="size-4 object-contain" 
+                  />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">Acme Inc</span>
-                  <span className="truncate text-xs">Enterprise</span>
+                  <span className="truncate font-medium">Minerva University</span>
+                  <span className="truncate text-xs">Pro version</span>
                 </div>
               </a>
             </SidebarMenuButton>
@@ -172,7 +176,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />
-        <NavProjects projects={data.projects} />
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>

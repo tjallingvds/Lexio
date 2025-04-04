@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronRight, FilePlus, LayoutDashboard, Files, Home, type LucideIcon } from "lucide-react"
+import { ChevronRight, FilePlus, LayoutDashboard, Files, Home, Plus, type LucideIcon } from "lucide-react"
 
 import {
   Collapsible,
@@ -18,6 +18,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
+import { Button } from "@/components/ui/button"
 
 export function NavMain({
   items,
@@ -35,17 +36,6 @@ export function NavMain({
 }) {
   return (
     <>
-      <SidebarMenu className="mb-2 mt-0">
-        <SidebarMenuItem className="mx-2">
-          <SidebarMenuButton asChild tooltip="New document" className="border rounded-md w-full">
-            <a href="/editor" onClick={(e) => { e.preventDefault(); window.location.href = "/editor"; }}>
-              <FilePlus className="h-4 w-4" />
-              <span>New document</span>
-            </a>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-      </SidebarMenu>
-      
       <SidebarGroup>
         <SidebarGroupLabel>Get started</SidebarGroupLabel>
         <SidebarMenu>
@@ -69,7 +59,20 @@ export function NavMain({
       </SidebarGroup>
       
       <SidebarGroup>
-        <SidebarGroupLabel>Recent documents</SidebarGroupLabel>
+        <div className="flex items-center justify-between">
+          <SidebarGroupLabel>Recent documents</SidebarGroupLabel>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-5 w-5 -mt-0.5 mr-2" 
+            asChild
+            title="New document"
+          >
+            <a href="/editor" onClick={(e) => { e.preventDefault(); window.location.href = "/editor"; }}>
+              <Plus className="h-4 w-4" />
+            </a>
+          </Button>
+        </div>
         <SidebarMenu>
           {/* Recent documents would be added here */}
         </SidebarMenu>
