@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronRight, FilePlus, LayoutDashboard, Files, Home, Plus, type LucideIcon } from "lucide-react"
+import { ChevronRight, FilePlus, LayoutDashboard, Files, Home, Plus, type LucideIcon, FileText } from "lucide-react"
 
 import {
   Collapsible,
@@ -74,7 +74,30 @@ export function NavMain({
           </Button>
         </div>
         <SidebarMenu>
-          {/* Recent documents would be added here */}
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild>
+              <a href="/editor/1" onClick={(e) => { e.preventDefault(); window.location.href = "/editor/1"; }}>
+                <FileText className="h-4 w-4" />
+                <span>Web Development Fundamentals</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild>
+              <a href="/editor/2" onClick={(e) => { e.preventDefault(); window.location.href = "/editor/2"; }}>
+                <FileText className="h-4 w-4" />
+                <span>Machine Learning Pipeline</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild>
+              <a href="/editor/3" onClick={(e) => { e.preventDefault(); window.location.href = "/editor/3"; }}>
+                <FileText className="h-4 w-4" />
+                <span>Biology Cell Structure</span>
+              </a>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarGroup>
     </>

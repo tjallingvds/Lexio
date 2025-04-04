@@ -3,6 +3,7 @@ import { Toaster } from 'sonner';
 
 import Home from '@/pages/Home';
 import Editor from '@/pages/Editor';
+import AllDocuments from '@/app/all-documents/page';
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
         <Route path="/dashboard" element={<Navigate to="/home" replace />} />
         <Route path="/editor" element={<Editor />} />
         <Route path="/editor/:id" element={<Editor />} />
+        <Route path="/all-documents" element={<AllDocuments />} />
       </Routes>
       <Toaster />
     </>
