@@ -14,14 +14,16 @@ export function PlateEditor() {
   const editor = useCreateEditor();
 
   return (
-    <DndProvider backend={HTML5Backend}>
-      <Plate editor={editor}>
-        <EditorContainer>
-          <Editor variant="demo" />
-        </EditorContainer>
+    <div className="bg-white h-full">
+      <DndProvider backend={HTML5Backend}>
+        <Plate editor={editor}>
+          <EditorContainer>
+            <Editor variant="demo" />
+          </EditorContainer>
 
-        <SettingsDialog />
-      </Plate>
-    </DndProvider>
+          <SettingsDialog />
+        </Plate>
+      </DndProvider>
+    </div>
   );
 }

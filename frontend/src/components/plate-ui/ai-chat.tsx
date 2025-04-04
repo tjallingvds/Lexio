@@ -70,12 +70,12 @@ export function AiChat() {
   };
 
   return (
-    <div className="flex h-full w-full flex-col">
-      <div className="flex items-center border-b px-4 py-2">
+    <div className="flex h-full w-full flex-col bg-white">
+      <div className="flex items-center border-b px-4 py-2 bg-white h-[41px]">
         <h3 className="font-medium">AI Assistant</h3>
       </div>
       
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="flex-1 p-4 bg-white">
         <div className="flex flex-col gap-4">
           {messages.map((message) => (
             <div
@@ -103,8 +103,8 @@ export function AiChat() {
         </div>
       </ScrollArea>
       
-      <div className="border-t p-4">
-        <div className="flex items-center mb-2">
+      <div className="p-4 bg-white">
+        <div className="flex items-center">
           <Button 
             variant="ghost" 
             size="sm" 
@@ -115,7 +115,7 @@ export function AiChat() {
           </Button>
         </div>
         
-        <div className="flex gap-2">
+        <div className="flex gap-2 mt-2">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

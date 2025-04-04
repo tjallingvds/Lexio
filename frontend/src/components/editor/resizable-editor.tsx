@@ -18,7 +18,7 @@ export function ResizableEditor() {
       <ResizablePanel 
         defaultSize={70} 
         minSize={30}
-        className="h-full"
+        className="h-full overflow-auto bg-white"
       >
         <PlateEditor />
       </ResizablePanel>

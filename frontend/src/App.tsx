@@ -12,7 +12,7 @@ function App() {
       <div className="flex h-screen w-full" data-registry="plate">
         <AppSidebar className="h-full border-r border-gray-200 dark:border-gray-800" />
         <Separator orientation="vertical" className="h-full" />
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-hidden flex flex-col bg-white">
           <SettingsProvider>
             <ResizableEditor />
           </SettingsProvider>
