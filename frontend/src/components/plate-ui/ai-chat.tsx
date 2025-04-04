@@ -18,16 +18,77 @@ type Message = {
   timestamp: Date;
 };
 
+// Get document ID from sessionStorage or window variable
+const getDocumentId = (): string | null => {
+  try {
+    // First check sessionStorage
+    const sessionId = typeof window !== 'undefined' 
+      ? sessionStorage.getItem('current_document_id') 
+      : null;
+    
+    if (sessionId) return sessionId;
+    
+    // Then check the window variable
+    if (typeof window !== 'undefined' && (window as any).__currentDocumentId) {
+      return (window as any).__currentDocumentId;
+    }
+    
+    return null;
+  } catch (e) {
+    console.error('Failed to get document ID:', e);
+    return null;
+  }
+};
+
+// Create a key for storing chat messages for a specific document
+const getChatStorageKey = (documentId: string | null): string => {
+  return documentId ? `chat_messages_${documentId}` : 'chat_messages_default';
+};
+
+// Save messages to localStorage for the current document
+const saveMessages = (messages: Message[], documentId: string | null): void => {
+  try {
+    const storageKey = getChatStorageKey(documentId);
+    localStorage.setItem(storageKey, JSON.stringify(messages));
+  } catch (e) {
+    console.error('Failed to save chat messages:', e);
+  }
+};
+
+// Load messages from localStorage for the current document
+const loadMessages = (documentId: string | null): Message[] => {
+  try {
+    const storageKey = getChatStorageKey(documentId);
+    const savedMessages = localStorage.getItem(storageKey);
+    
+    if (savedMessages) {
+      const parsedMessages = JSON.parse(savedMessages);
+      
+      // Convert string timestamps back to Date objects and ensure correct types
+      return parsedMessages.map((msg: any) => ({
+        ...msg,
+        timestamp: new Date(msg.timestamp),
+        role: msg.role as 'user' | 'assistant'
+      }));
+    }
+  } catch (e) {
+    console.error('Failed to load chat messages:', e);
+  }
+  
+  // Default welcome message
+  return [{
+    id: '1',
+    role: 'assistant' as const,
+    content: 'Hello! How can I assist you with your document today?',
+    timestamp: new Date(),
+  }];
+};
+
 export function AiChat() {
+  const documentId = getDocumentId();
+  
   // Local state for UI messages
-  const [messages, setMessages] = React.useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: 'Hello! How can I assist you with your document today?',
-      timestamp: new Date(),
-    },
-  ]);
+  const [messages, setMessages] = React.useState<Message[]>(() => loadMessages(documentId));
   
   // Get settings to access the OpenAI API key
   const { keys } = useSettings();
@@ -41,6 +102,13 @@ export function AiChat() {
   
   // State to track which message was recently copied
   const [copiedMessageId, setCopiedMessageId] = React.useState<string | null>(null);
+
+  // Save messages whenever they change
+  React.useEffect(() => {
+    if (messages.length > 0) {
+      saveMessages(messages, documentId);
+    }
+  }, [messages, documentId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -130,9 +198,28 @@ export function AiChat() {
       isLoading,
       hasMessages: apiMessages.length > 0,
       inputValue: input,
-      documentContent: !!documentContent
+      documentContent: !!documentContent,
+      documentId
     });
-  }, [thinking, isLoading, apiMessages.length, input, documentContent]);
+  }, [thinking, isLoading, apiMessages.length, input, documentContent, documentId]);
+
+  // Reset chat to initial state
+  const handleNewChat = () => {
+    const initialMessages: Message[] = [{
+      id: '1',
+      role: 'assistant' as const,
+      content: 'Hello! How can I assist you with your document today?',
+      timestamp: new Date(),
+    }];
+    
+    setMessages(initialMessages);
+    setInput('');
+    setThinking(false);
+    setHasInteraction(false);
+    
+    // Save the clean state immediately
+    saveMessages(initialMessages, documentId);
+  };
 
   // Helper function to directly call the API with fetch instead of the useChat hook
   const sendDirectApiRequest = async (userMessage: string, systemPrompt: string) => {
@@ -398,8 +485,17 @@ If asked to read the document, you should summarize the content above. Always ba
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b px-4 py-2 bg-white sticky top-0 z-10 h-[41px] flex items-center">
+      <div className="border-b px-4 py-2 bg-white sticky top-0 z-10 h-[41px] flex items-center justify-between">
         <h3 className="font-medium">AI Assistant</h3>
+        <Button 
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 flex items-center gap-1"
+          onClick={handleNewChat}
+        >
+          <PlusIcon className="h-3.5 w-3.5" />
+          New Chat
+        </Button>
       </div>
       
       <ScrollArea className="flex-1 p-4 bg-white overflow-auto">
