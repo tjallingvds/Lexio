@@ -27,6 +27,7 @@ def init_db():
         
         # Create indexes if needed
         db.documents.create_index("title")
+        db.users.create_index("email", unique=True)
         
         return True
     except ConnectionFailure:
