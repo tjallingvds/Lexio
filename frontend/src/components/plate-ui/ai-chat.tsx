@@ -21,7 +21,6 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar } from '@/components/ui/avatar';
-import { useChat } from '@/components/editor/use-chat';
 import { useSettings } from '@/components/editor/settings';
 import { useUploadFile } from '@/lib/uploadthing';
 import { toast } from 'sonner';
@@ -31,7 +30,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { PdfLibrary } from './pdf-library';
-import { extractTextFromPdf, sanitizePdfContent as pdfsanitize } from './pdf-utils';
+import { sanitizePdfContent, extractTextFromPdf, queryPdfContent, getPdfContent } from '@/components/plate-ui/pdf-utils';
 import { 
   Tooltip,
   TooltipContent,
@@ -114,8 +113,6 @@ const loadMessages = (documentId: string | null): Message[] => {
   }];
 };
 
-// Helper function to sanitize PDF content to avoid sending binary/encoded data
-
 // Define our local PdfDocument type to have all the properties we need
 type PdfDocument = {
   id: string;
@@ -125,6 +122,26 @@ type PdfDocument = {
   file?: File;
   content?: string;
   preview?: string;
+  pdf_id?: string;
+};
+
+// Add these functions to fix the linter errors
+const loadPdfLibrary = (): PdfDocument[] => {
+  try {
+    const stored = localStorage.getItem('pdf_library');
+    return stored ? JSON.parse(stored) : [];
+  } catch (e) {
+    console.error('Failed to load PDF library:', e);
+    return [];
+  }
+};
+
+const savePdfLibrary = (pdfs: PdfDocument[]): void => {
+  try {
+    localStorage.setItem('pdf_library', JSON.stringify(pdfs));
+  } catch (e) {
+    console.error('Failed to save PDF library:', e);
+  }
 };
 
 export function AiChat() {
@@ -136,8 +153,11 @@ export function AiChat() {
   // Get settings to access the OpenAI API key
   const { keys } = useSettings();
   
-  // Use the existing chat hook with OpenAI API
-  const { messages: apiMessages, input, setInput, handleSubmit, isLoading } = useChat();
+  // Remove this:
+  // const { messages: apiMessages, input, setInput, handleSubmit, isLoading } = useChat();
+  
+  // And replace with our own state:
+  const [input, setInput] = React.useState<string>('');
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   const [documentContent, setDocumentContent] = React.useState('');
   const [thinking, setThinking] = React.useState(false);
@@ -170,32 +190,59 @@ export function AiChat() {
   // Handler for selecting a PDF from the library
   const handleSelectPdf = async (pdf: PdfDocument) => {
     try {
-      // If the PDF already has content, use it
-      if (pdf.content) {
-        handleAddPdfToContext(pdf.id, pdf.name, pdf.content);
+      // If the PDF already has backend pdf_id, use it
+      if (pdf.pdf_id) {
+        // Try to get content from file cache first
+        if (pdf.content) {
+          handleAddPdfToContext(pdf.id, pdf.name, pdf.content, pdf.pdf_id);
+          return;
+        }
+        
+        // Otherwise fetch from backend
+        setIsPdfUploading(true);
+        const content = await getPdfContent(pdf.pdf_id);
+        
+        if (content) {
+          // Update the PDF in local state with content
+          handleAddPdfToContext(pdf.id, pdf.name, content, pdf.pdf_id);
+          
+          // Update the PDF in the library
+          const updatedPdf = {
+            ...pdf,
+            content: content
+          };
+          
+          console.log('PDF content fetched from backend successfully:', updatedPdf.name);
+          toast.success(`PDF "${pdf.name}" added to context`);
+        } else {
+          toast.error("Could not retrieve PDF content from server");
+        }
+        setIsPdfUploading(false);
         return;
       }
       
-      // If PDF has a file property, extract the content
+      // If PDF has a file property but no pdf_id, extract the content
       if (pdf.file) {
         setIsPdfUploading(true);
         
         try {
-          const extractedText = await extractTextFromPdf(pdf.file);
-          // Clean text with sanitizer
-          const cleanedText = pdfsanitize(extractedText);
+          const result = await extractTextFromPdf(pdf.file);
           
-          if (cleanedText && cleanedText.length > 0) {
-            handleAddPdfToContext(pdf.id, pdf.name, cleanedText);
+          if (result.text && result.text.length > 0) {
+            // Clean text with sanitizer
+            const cleanedText = sanitizePdfContent(result.text);
+            
+            handleAddPdfToContext(pdf.id, pdf.name, cleanedText, result.pdf_id);
             
             // Update the PDF in the library with the extracted content
             const updatedPdf = {
               ...pdf,
-              content: cleanedText
+              content: cleanedText,
+              pdf_id: result.pdf_id
             };
             
-            // This would need proper implementation if pdfs state is managed elsewhere
             console.log('PDF content extracted successfully:', updatedPdf.name);
+            toast.success(`PDF "${pdf.name}" added to context`);
           } else {
             toast.error("Could not extract meaningful text from this PDF.");
           }
@@ -227,6 +274,24 @@ export function AiChat() {
     const file = files[0];
     console.log('File selected:', file.name, 'type:', file.type, 'size:', file.size);
     
+    // Check for OpenAI API key
+    if (!keys?.openai && !keys?.openAIKey) {
+      toast.error('OpenAI API key is required to process PDFs. Please add your API key in the Settings panel.');
+      event.target.value = '';
+      
+      // Add an error message to the chat
+      setMessages(prev => [
+        ...prev,
+        {
+          id: String(Date.now()),
+          role: 'assistant',
+          content: "⚠️ OpenAI API key is missing. PDF processing requires an API key for generating embeddings and responses. Please configure your API key in Settings.",
+          timestamp: new Date()
+        }
+      ]);
+      return;
+    }
+    
     // Reset debug info
     setPdfDebugInfo(null);
     setShowDebugInfo(false);
@@ -250,82 +315,42 @@ export function AiChat() {
       setPdfName(file.name);
       toast.info(`Processing PDF ${file.name}. This may take a moment...`);
       
-      // Collect debug info
-      let debugLog: string[] = [
-        `PDF Upload Debug Log for ${file.name} (${file.size} bytes)`,
-        `Browser: ${navigator.userAgent}`,
-        `Time: ${new Date().toISOString()}`
-      ];
+      // Use the improved extraction method
+      const result = await extractTextFromPdf(file);
       
-      // Use simplified approach - extract text from PDF
-      let text = '';
-      
-      try {
-        debugLog.push(`Attempting PDF extraction...`);
-        text = await extractTextFromPdf(file);
-        debugLog.push(`Extraction complete, text length: ${text?.length || 0}`);
-        
-        // Clean the text with sanitizer
-        text = pdfsanitize(text);
-        
-        if (!text || text.length < 100) {
-          throw new Error("No meaningful text could be extracted from this PDF. It may be scanned or contain only images.");
-        }
-      } catch (error) {
-        debugLog.push(`Extraction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        console.error('PDF extraction failed:', error);
-        
-        // Set and show debug info
-        setPdfDebugInfo(debugLog.join('\n'));
-        setShowDebugInfo(true);
-        
-        toast.error("Failed to extract text from PDF. It may be scanned, encrypted, or contain only images.");
-        setIsPdfUploading(false);
-        event.target.value = '';
-        return;
+      if (!result.text || result.text.length < 100) {
+        throw new Error("No meaningful text could be extracted from this PDF. It may be scanned or contain only images.");
       }
       
-      // Success - store the extracted text
-      setPdfContent(text);
+      // Success - add to context
+      const pdfId = Date.now().toString();
+      const cleanedText = sanitizePdfContent(result.text);
+      handleAddPdfToContext(pdfId, file.name, cleanedText, result.pdf_id);
       
-      const contentPreview = text.slice(0, 100).replace(/\n/g, ' ') + '...';
-      toast.success(`PDF "${file.name}" processed. ${Math.round(text.length / 5)} estimated tokens.`);
-      
-      // Add a system message to show that PDF was added
-      const systemMessage: Message = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: `I've added the PDF "${file.name}" to our chat context. Preview of content: "${contentPreview}". You can now ask questions about it.`,
-        timestamp: new Date(),
-      };
-      
-      setMessages(prevMessages => [...prevMessages, systemMessage]);
-      
-      // Also create a PdfDocument object and add it to selected PDFs
+      // Also save to PDF library
       const newPdf: PdfDocument = {
-        id: Date.now().toString(),
+        id: pdfId,
         name: file.name,
-        content: text,
         size: file.size,
         date: new Date(),
-        preview: contentPreview
+        content: cleanedText,
+        pdf_id: result.pdf_id,
+        preview: result.text.slice(0, 150).replace(/\n/g, ' ') + '...'
       };
       
-      // Add to selected PDFs
-      setSelectedPdfs(prev => [...prev, newPdf]);
+      // Get PDF library from localStorage
+      const loadedPdfs = loadPdfLibrary();
+      savePdfLibrary([...loadedPdfs, newPdf]);
       
-      // Reset the file upload state
-      setIsPdfUploading(false);
-      event.target.value = '';
+      // Use token estimate from backend if available, otherwise calculate
+      const tokenEstimate = result.token_estimate || Math.round(cleanedText.split(/\s+/).length * 1.3);
+      toast.success(`PDF "${file.name}" added to context and library (approx. ${tokenEstimate} tokens)`);
     } catch (error) {
-      console.error('Failed to process PDF:', error);
-      const errorMsg = error instanceof Error ? error.message : 'Failed to process PDF file';
-      
-      // Set debug info
-      setPdfDebugInfo(`PDF processing failed: ${errorMsg}\n\n${navigator.userAgent}`);
+      console.error('PDF extraction failed:', error);
+      setPdfDebugInfo(`Failed to extract text: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setShowDebugInfo(true);
-      
-      toast.error(errorMsg);
+      toast.error("Failed to extract text from PDF. It may be scanned, encrypted, or contain only images.");
+    } finally {
       setIsPdfUploading(false);
       event.target.value = '';
     }
@@ -349,47 +374,17 @@ export function AiChat() {
     scrollToBottom();
   }, [messages]);
 
-  // Update UI messages when API messages change
+  // Also remove or update the effect that relies on isLoading
   React.useEffect(() => {
-    // Update messages and thinking state based on apiMessages
-    if (apiMessages && apiMessages.length > 0) {
-      console.log('API messages updated:', apiMessages.length);
-      console.log('API messages content:', apiMessages);
-      
-      // Create UI messages from API messages
-      const uiMessages: Message[] = apiMessages.map((msg) => ({
-        id: msg.id,
-        role: msg.role === 'user' || msg.role === 'assistant' 
-          ? msg.role 
-          : 'assistant', // Default to assistant for other roles
-        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-        timestamp: new Date(),
-      }));
-      
-      // Update messages
-      setMessages(uiMessages);
-      
-      // Turn off thinking animation if we have a response
-      if (apiMessages.some(msg => msg.role === 'assistant')) {
-        setThinking(false);
-      }
-      
-      // Scroll to bottom
-      scrollToBottom();
-    } else {
-      console.log('No API messages received or empty array');
+    if (thinking) {
+      // If thinking transitions to false, scroll to bottom
+      return () => {
+        if (!thinking) {
+          scrollToBottom();
+        }
+      };
     }
-  }, [apiMessages]);
-
-  // Track loading state to update thinking animation
-  React.useEffect(() => {
-    if (isLoading) {
-      setThinking(true);
-    } else if (!isLoading && hasInteraction) {
-      // Delay turning off animation just to make it smoother
-      setTimeout(() => setThinking(false), 300);
-    }
-  }, [isLoading, hasInteraction]);
+  }, [thinking]);
 
   // Listen for window messages to receive document content from the editor
   React.useEffect(() => {
@@ -426,14 +421,12 @@ export function AiChat() {
   React.useEffect(() => {
     console.log('Current state:', { 
       thinking,
-      isLoading,
-      hasMessages: apiMessages.length > 0,
       inputValue: input,
       documentContent: !!documentContent,
       documentId,
       hasPdfContent: !!pdfContent
     });
-  }, [thinking, isLoading, apiMessages.length, input, documentContent, documentId, pdfContent]);
+  }, [thinking, input, documentContent, documentId, pdfContent]);
 
   // Reset chat to initial state
   const handleNewChat = () => {
@@ -457,19 +450,22 @@ export function AiChat() {
   };
 
   // Helper function to directly call the API with fetch instead of the useChat hook
-  const sendDirectApiRequest = async (userMessage: string, systemPrompt: string) => {
+  const sendDirectApiRequest = async (userMessage: string, systemPrompt: string, skipAddingUserMessage = false) => {
     try {
       console.log('Sending direct API request with system prompt length:', systemPrompt.length);
       
-      // Add user message to UI
-      const userMessageObj: Message = {
-        id: Date.now().toString(),
-        role: 'user',
-        content: userMessage,
-        timestamp: new Date(),
-      };
-      
-      setMessages(prevMessages => [...prevMessages, userMessageObj]);
+      // Only add user message to UI if not skipped
+      if (!skipAddingUserMessage) {
+        // Add user message to UI
+        const userMessageObj: Message = {
+          id: Date.now().toString(),
+          role: 'user',
+          content: userMessage,
+          timestamp: new Date(),
+        };
+        
+        setMessages(prevMessages => [...prevMessages, userMessageObj]);
+      }
       
       // Check for API key first
       if (!keys.openai) {
@@ -685,50 +681,159 @@ export function AiChat() {
       formattedContent = documentContent || '';
     }
     
-    // Create system prompt, carefully handling both document and PDF content
-    let systemPrompt = `You are an AI assistant helping with document analysis and questions. Be clear, accurate, and helpful in your responses.`;
+    // Create a custom message to send
+    const userMsg = {
+      role: 'user',
+      content: input,
+    };
+
+    // Add to UI messages
+    const newUiMessage: Message = {
+      id: String(Date.now()),
+      role: 'user',
+      content: input,
+      timestamp: new Date()
+    };
     
-    // Add document content if available
-    if (formattedContent && formattedContent.trim().length > 0) {
-      systemPrompt += `\n\nHere is the current document content:
+    // Add the current message to UI messages
+    setMessages(prev => [...prev, newUiMessage]);
+    setInput('');
+    setHasInteraction(true);
+    setThinking(true);
+    
+    // Assemble context from PDFs using LangChain approach
+    async function fetchAndProcessResponse() {
+      try {
+        // Prepare the context - for PDFs, we'll use the better approach
+        // of querying the vector DB for relevant content based on the user query
+        let relevantPdfContent = '';
+        
+        if (selectedPdfs.length > 0 && selectedPdfs.some(pdf => pdf.pdf_id)) {
+          // For PDFs with backend IDs, query the vector DB
+          try {
+            const queryResults = await queryPdfContent(input, 3);
+            
+            if (queryResults.success && queryResults.results.length > 0) {
+              relevantPdfContent = "\n\nRelevant PDF content:\n";
+              
+              // Add each relevant chunk
+              queryResults.results.forEach((result: any, index: number) => {
+                // Find the PDF name from the metadata
+                const pdfId = result.metadata?.pdf_id;
+                const pdf = selectedPdfs.find(p => p.pdf_id === pdfId);
+                const pdfName = pdf ? pdf.name : "Unknown PDF";
+                
+                relevantPdfContent += `\n--- From ${pdfName} (Relevance: ${Math.round((1 - result.relevance_score) * 100)}%) ---\n`;
+                relevantPdfContent += result.content + "\n";
+              });
+            } else if (queryResults.error) {
+              console.error("Error querying PDF content:", queryResults.error);
+              // If there's specifically an API key error, throw it to be handled by the catch block
+              if (queryResults.error.includes("API key")) {
+                throw new Error(queryResults.error);
+              }
+            }
+          } catch (error) {
+            console.error("Error querying PDFs:", error);
+            // If it's an API key error, throw it to be handled by the outer catch
+            if (error instanceof Error && error.message.includes("API key")) {
+              throw error;
+            }
+          }
+        }
+        
+        // Create system prompt
+        let systemPrompt = `You are an AI assistant helping with document analysis and questions. Be clear, accurate, and helpful in your responses.`;
+        
+        // Add document content if available
+        if (formattedContent && formattedContent.trim().length > 0) {
+          systemPrompt += `\n\nHere is the current document content:
 \`\`\`
 ${formattedContent}
 \`\`\``;
-    }
+        }
 
-    // Add PDF content from all selected PDFs without artificial length limits
-    if (selectedPdfs.length > 0) {
-      systemPrompt += `\n\nYou also have access to the following PDF documents:`;
-      
-      // Add each PDF separately with clear labeling
-      selectedPdfs.forEach((pdf, index) => {
-        if (!pdf.content) return;
+        // Add PDF context with the relevant chunks
+        if (relevantPdfContent) {
+          systemPrompt += relevantPdfContent;
+        } else if (selectedPdfs.length > 0) {
+          // Fallback for PDFs without vector storage - we need to include some content
+          const pdfNames = selectedPdfs.map(pdf => pdf.name).join(", ");
+          systemPrompt += `\n\nYou have access to these PDFs: ${pdfNames}`;
+          
+          // Add a brief preview of each PDF to provide some context
+          selectedPdfs.forEach((pdf, i) => {
+            if (pdf.content) {
+              const preview = pdf.content.slice(0, 300) + '...';
+              systemPrompt += `\n\nBrief preview of ${pdf.name}:\n${preview}`;
+            }
+          });
+        }
+
+        systemPrompt += `\n\nIf asked about the document or PDF, summarize the relevant content. Base your responses strictly on the provided content. If you don't know something or it's not in the content, admit that you don't know rather than making up information.`;
         
-        systemPrompt += `\n\n--- PDF ${index + 1}: ${pdf.name} ---\n`;
-        systemPrompt += pdf.content;
-      });
-      
-      console.log(`Added content from ${selectedPdfs.length} PDFs to the system prompt`);
+        // Call OpenAI API directly
+        const openApiKey = keys?.openai || keys?.openAIKey;
+        
+        if (!openApiKey) {
+          throw new Error("OpenAI API key not found. Please add your API key in the Settings panel.");
+        }
+        
+        // Replace with your API call
+        const apiCall = {
+          model: "gpt-3.5-turbo",
+          messages: [
+            { role: "system", content: systemPrompt },
+            // Convert UI messages to API format
+            ...messages
+              .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+              .map(msg => ({
+                role: msg.role,
+                content: msg.content
+              })),
+            { role: "user", content: input }
+          ]
+        };
+        
+        // Call the API
+        console.log('Calling OpenAI API with:', {
+          model: apiCall.model,
+          messageCount: apiCall.messages.length,
+          systemPromptLength: systemPrompt.length,
+        });
+        
+        // Use the existing sendDirectApiRequest function instead of simulation
+        sendDirectApiRequest(input, systemPrompt, true);
+        
+      } catch (error) {
+        console.error('Error in API call:', error);
+        
+        // Handle error
+        const errorMsg: Message = {
+          id: String(Date.now() + 1),
+          role: 'assistant',
+          content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          timestamp: new Date()
+        };
+        
+        const updatedMessages = [...messages, newUiMessage, errorMsg];
+        setMessages(updatedMessages);
+        setThinking(false);
+        
+        // Save messages to localStorage
+        saveMessages(updatedMessages, documentId);
+      }
     }
-
-    systemPrompt += `\n\nIf asked about the document or PDF, summarize the relevant content. Base your responses strictly on the provided content. If you don't know something or it's not in the content, admit that you don't know rather than making up information.`;
-
-    console.log('System prompt prepared with all PDF content, total length:', systemPrompt.length);
-
-    // Set thinking state and interaction flag
-    setThinking(true);
-    setHasInteraction(true);
     
-    // Use direct API request
-    const userInput = input;
-    setInput('');
+    // Start the response process
+    fetchAndProcessResponse();
     
-    // Log what's being sent
-    console.log('Sending user input:', userInput);
-    console.log('Number of PDFs in context:', selectedPdfs.length);
-    
-    // Send the request
-    sendDirectApiRequest(userInput, systemPrompt);
+    // Scroll to bottom after message is added
+    setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 100);
   };
 
   // Helper function to extract text from Plate document structure
@@ -786,28 +891,46 @@ ${formattedContent}
     toast.info('PDF removed from context');
   };
 
-  // Define our function to handle adding a PDF to the context
-  const handleAddPdfToContext = (id: string, name: string, content: string) => {
-    // Check if already selected
-    if (selectedPdfs.some(selected => selected.id === id)) {
-      // Remove from selection if already added
-      setSelectedPdfs(prev => prev.filter(p => p.id !== id));
-      toast.info(`Removed "${name}" from context`);
-    } else {
-      // Add to selection with required PdfDocument fields
-      setSelectedPdfs(prev => [...prev, { 
-        id, 
-        name, 
-        content, 
-        size: 0, // Default size since we don't have the actual size
-        date: new Date() // Current date as fallback
-      }]);
-      toast.success(`Added "${name}" to chat context`);
+  // Add a PDF to chat context
+  const handleAddPdfToContext = (id: string, name: string, content: string, pdf_id?: string) => {
+    // Check if this PDF is already in context
+    const exists = selectedPdfs.some(pdf => pdf.id === id);
+    if (exists) {
+      toast.info(`PDF "${name}" is already in context`);
+      return;
     }
     
-    // Switch back to chat view
+    // Add to selected PDFs
+    setSelectedPdfs([...selectedPdfs, {
+      id,
+      name,
+      content,
+      pdf_id,
+      size: content.length,
+      date: new Date()
+    }]);
+    
+    // Switch to chat view
     setActiveView('chat');
+    
+    toast.success(`PDF "${name}" added to chat context`);
   };
+
+  // Add a useEffect to check for API key on component load:
+  React.useEffect(() => {
+    // Check for API key on component load
+    if (!keys?.openai && !keys?.openAIKey && selectedPdfs.length > 0) {
+      setMessages(prev => [
+        ...prev, 
+        {
+          id: String(Date.now()),
+          role: 'assistant',
+          content: "⚠️ No OpenAI API key found. Please add your API key in the Settings panel to use PDF functionality with chat.",
+          timestamp: new Date()
+        }
+      ]);
+    }
+  }, [selectedPdfs.length, keys?.openai, keys?.openAIKey]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-background rounded-lg border shadow-sm">

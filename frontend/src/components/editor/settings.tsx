@@ -65,30 +65,42 @@ const SettingsContext = createContext<SettingsContextType | undefined>(
 );
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  // Initialize with empty string, will be filled from env var
-  let initialApiKey = '';
-  
-  // Try to use environment variable first
-  try {
-    const envApiKey = import.meta.env.VITE_OPENAI_API_KEY;
-    if (envApiKey && typeof envApiKey === 'string' && envApiKey.length > 0) {
-      initialApiKey = envApiKey;
-      console.log('Environment API Key loaded successfully');
-    } else {
-      console.warn('Environment API Key not found or empty');
+  const [keys, setKeys] = useState<Record<string, string>>(() => {
+    // Initialize from local storage
+    const storedKeys = typeof window !== 'undefined' ? localStorage.getItem('api-keys') : null;
+    
+    // Get environment variables
+    const envOpenAI = import.meta.env.VITE_OPENAI_API_KEY as string;
+    const envUploadthing = import.meta.env.VITE_UPLOADTHING_API_KEY as string;
+    
+    console.log('Environment OpenAI API key available:', !!envOpenAI);
+    
+    // Use local storage or fallback to environment variables
+    if (storedKeys) {
+      const parsed = JSON.parse(storedKeys);
+      return {
+        openai: parsed.openai || envOpenAI || '',
+        uploadthing: parsed.uploadthing || envUploadthing || '',
+      };
     }
-  } catch (e) {
-    console.error('Error accessing environment variables:', e);
-  }
-  
-  const [keys, setKeys] = useState({
-    openai: initialApiKey,
-    uploadthing: '',
+    
+    // If no local storage, use environment variables
+    return {
+      openai: envOpenAI || '',
+      uploadthing: envUploadthing || '',
+    };
   });
   const [model, setModel] = useState<Model>(models[1]);
 
   const setKey = (service: string, key: string) => {
-    setKeys((prev) => ({ ...prev, [service]: key }));
+    setKeys((prev) => {
+      const newKeys = { ...prev, [service]: key };
+      // Save to localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('api-keys', JSON.stringify(newKeys));
+      }
+      return newKeys;
+    });
   };
 
   return (

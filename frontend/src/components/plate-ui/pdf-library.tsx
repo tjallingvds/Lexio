@@ -20,6 +20,7 @@ export type PdfDocument = {
   file?: File;
   content?: string;
   preview?: string;
+  pdf_id?: string;
 };
 
 const PDF_LIBRARY_STORAGE_KEY = 'pdf_library';
@@ -85,6 +86,9 @@ export function PdfLibrary({ onSelect }: PdfLibraryProps) {
       return;
     }
 
+    // Show loading toast
+    toast.loading(`Processing ${file.name}...`);
+    
     // Create new PDF document
     const newPdf: PdfDocument = {
       id: Date.now().toString(),
@@ -99,7 +103,35 @@ export function PdfLibrary({ onSelect }: PdfLibraryProps) {
     setPdfs(updatedPdfs);
     savePdfLibrary(updatedPdfs);
 
-    toast.success(`${file.name} added to library`);
+    // Process the PDF to extract text using the improved backend
+    (async () => {
+      try {
+        const result = await extractTextFromPdf(file);
+        
+        if (result.text) {
+          // Process was successful
+          const pdfWithContent = updatedPdfs.find(p => p.id === newPdf.id);
+          if (pdfWithContent) {
+            pdfWithContent.content = result.text;
+            pdfWithContent.pdf_id = result.pdf_id; // Store backend PDF ID
+            pdfWithContent.preview = result.text.slice(0, 150).replace(/\n/g, ' ') + '...';
+            
+            // Update state and save
+            setPdfs([...updatedPdfs]);
+            savePdfLibrary([...updatedPdfs]);
+            
+            // Calculate token count properly based on word count
+            const tokenEstimate = Math.round(result.text.split(/\s+/).length * 1.3);
+            toast.success(`${file.name} processed successfully (approx. ${tokenEstimate} tokens)`);
+          }
+        } else {
+          toast.error("Failed to extract content from PDF");
+        }
+      } catch (error) {
+        console.error("Error processing PDF:", error);
+        toast.error("Error processing PDF");
+      }
+    })();
 
     // Reset file input
     if (fileInputRef.current) {
@@ -203,7 +235,7 @@ export function PdfLibrary({ onSelect }: PdfLibraryProps) {
                       {pdf.content ? (
                         <div className="flex items-center mt-1">
                           <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 px-2 py-0.5 rounded-full">
-                            Content Extracted ({Math.round(pdf.content.length / 5)} tokens)
+                            Content Extracted ({Math.round(pdf.content.split(/\s+/).length * 1.3)} tokens)
                           </span>
                         </div>
                       ) : (
