@@ -277,7 +277,7 @@ export default function Page() {
           </AlertDialogContent>
         </AlertDialog>
         
-        <Toaster />
+        <Toaster position="top-right" />
       </div>
     </SidebarProvider>
   );

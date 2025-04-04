@@ -14,6 +14,7 @@ import { useCreateEditor } from '@/components/editor/use-create-editor';
 import { SettingsDialog } from '@/components/editor/settings';
 import { Editor, EditorContainer } from '@/components/plate-ui/editor';
 import { updateDocument, fetchDocument } from '@/lib/api';
+import { SaveIndicator } from '@/components/editor/save-indicator';
 
 // Save states for tracking
 export enum SaveState {
@@ -787,7 +788,9 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
             <SettingsDialog />
           </Plate>
         </DndProvider>
-        <Toaster />
+        <SaveIndicator saveState={saveState} className="fixed bottom-2 right-2 z-10 flex items-center" />
+
+        <Toaster position="top-right" />
       </div>
     );
   }

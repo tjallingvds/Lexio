@@ -36,28 +36,29 @@ export default function Editor() {
   }, [id]);
 
   return (
-    <SidebarProvider>
-      <div className="flex h-screen w-full" data-registry="plate">
-        <AppSidebar className="h-full border-r border-gray-200 dark:border-gray-800" />
-        <Separator orientation="vertical" className="h-full" />
-        <div className="flex-1 overflow-hidden flex flex-col bg-white">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              Loading document...
-            </div>
-          ) : error ? (
-            <div className="flex items-center justify-center h-full text-red-500">
-              {error}
-            </div>
-          ) : (
-            <SettingsProvider>
-              <ResizableEditor />
-            </SettingsProvider>
-          )}
+    <div className="relative">
+      <SidebarProvider>
+        <div className="flex h-screen w-full" data-registry="plate">
+          <AppSidebar className="h-full border-r border-gray-200 dark:border-gray-800" />
+          <Separator orientation="vertical" className="h-full" />
+          <div className="flex-1 overflow-hidden flex flex-col bg-white">
+            {loading ? (
+              <div className="flex items-center justify-center h-full">
+                Loading document...
+              </div>
+            ) : error ? (
+              <div className="flex items-center justify-center h-full text-red-500">
+                {error}
+              </div>
+            ) : (
+              <SettingsProvider>
+                <ResizableEditor />
+              </SettingsProvider>
+            )}
+          </div>
         </div>
-
-        <Toaster />
-      </div>
-    </SidebarProvider>
+      </SidebarProvider>
+      <Toaster position="top-right" />
+    </div>
   );
 } 
