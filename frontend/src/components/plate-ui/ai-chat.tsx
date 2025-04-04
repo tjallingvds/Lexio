@@ -76,25 +76,23 @@ export function AiChat() {
       </div>
       
       <ScrollArea className="flex-1 p-4 bg-white">
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col space-y-4">
           {messages.map((message) => (
             <div
               key={message.id}
               className={cn(
-                "flex gap-3 rounded-lg p-3",
-                message.role === 'assistant' 
-                  ? "bg-muted" 
-                  : "bg-primary text-primary-foreground"
+                "flex w-full",
+                message.role === 'user' && "justify-end"
               )}
             >
-              {message.role === 'assistant' && (
-                <Avatar className="h-8 w-8 rounded-full">
-                  <div className="bg-primary flex h-full w-full items-center justify-center text-xs font-medium text-primary-foreground">
-                    AI
-                  </div>
-                </Avatar>
-              )}
-              <div className="flex-1">
+              <div
+                className={cn(
+                  "max-w-[80%] rounded-2xl px-4 py-2",
+                  message.role === 'user' 
+                    ? "bg-gray-100" 
+                    : "bg-white"
+                )}
+              >
                 <p className="text-sm">{message.content}</p>
               </div>
             </div>
@@ -103,8 +101,8 @@ export function AiChat() {
         </div>
       </ScrollArea>
       
-      <div className="p-4 bg-white">
-        <div className="flex items-center">
+      <div className="border-t p-4 bg-white">
+        <div className="flex items-center mb-2">
           <Button 
             variant="ghost" 
             size="sm" 
@@ -115,18 +113,19 @@ export function AiChat() {
           </Button>
         </div>
         
-        <div className="flex gap-2 mt-2">
+        <div className="relative w-full">
           <Textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask AI for help..."
-            className="min-h-[80px] flex-1 resize-none"
+            className="min-h-[100px] w-full resize-none pr-10"
           />
           <Button 
             onClick={handleSend}
             size="icon"
-            className="self-end"
+            variant="ghost"
+            className="absolute right-3 top-2 h-6 w-6 p-0"
             disabled={!input.trim()}
           >
             <SendIcon className="h-4 w-4" />
