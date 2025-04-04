@@ -1,17 +1,11 @@
 'use client';
 
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import { useState, useEffect } from 'react';
-import { Document, fetchDocuments } from '@/lib/api';
+import { Document, fetchDocuments, deleteDocument } from '@/lib/api';
 import { FileText, MoreHorizontal, Star, Search, PanelLeftIcon, Home } from 'lucide-react';
 import { format } from 'date-fns';
-
-import { AppSidebar } from '@/components/app-sidebar';
-import { SidebarProvider, useSidebar } from '@/components/ui/sidebar';
-import { Separator } from '@/components/ui/separator';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +13,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { createAndOpenDocument } from '@/lib/document-utils';
+
+import { AppSidebar } from '@/components/app-sidebar';
+import { SidebarProvider, useSidebar } from '@/components/ui/sidebar';
+import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function DocumentsHeader() {
   const { toggleSidebar, state } = useSidebar();
@@ -46,6 +57,11 @@ export default function Page() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [starredDocuments, setStarredDocuments] = useState<string[]>([]);
+  const [isCreating, setIsCreating] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [documentToDelete, setDocumentToDelete] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const navigate = useNavigate();
 
   // Load documents function
   const loadDocuments = async () => {
@@ -60,25 +76,9 @@ export default function Page() {
     }
   };
 
-  // Fetch documents on initial load
+  // Fetch documents only on initial load
   useEffect(() => {
     loadDocuments();
-  }, []);
-
-  // Refresh documents when window gets focus (user comes back to this page)
-  useEffect(() => {
-    const handleFocus = () => {
-      loadDocuments();
-    };
-
-    window.addEventListener('focus', handleFocus);
-    
-    // Also refresh when component mounts to ensure fresh data
-    loadDocuments();
-    
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-    };
   }, []);
 
   // Toggle starred status
@@ -95,14 +95,41 @@ export default function Page() {
     doc.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Generate random author and node count data (for demo purposes)
-  const getRandomAuthor = () => {
-    const authors = ['TechExpert', 'AIResearcher', 'BioTeacher', 'PMProfessional', 'PhysicsTeacher', 'CodingInstructor', 'MedStudent', 'HistoryBuff'];
-    return authors[Math.floor(Math.random() * authors.length)];
+  // Handle document creation
+  const handleCreateDocument = async () => {
+    setIsCreating(true);
+    try {
+      const documentId = await createAndOpenDocument();
+      if (documentId) {
+        navigate(`/editor/${documentId}?new=true`);
+      }
+    } finally {
+      setIsCreating(false);
+    }
   };
 
-  const getRandomNodeCount = () => {
-    return Math.floor(Math.random() * 100) + 1;
+  // Handle document deletion
+  const handleDeleteDocument = async () => {
+    if (!documentToDelete) return;
+    
+    setIsDeleting(true);
+    try {
+      const success = await deleteDocument(documentToDelete);
+      if (success) {
+        toast.success('Document deleted successfully');
+        // Remove the document from the state to avoid an extra API call
+        setDocuments(prev => prev.filter(doc => doc.id !== documentToDelete));
+      } else {
+        toast.error('Failed to delete document');
+      }
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      toast.error('Failed to delete document');
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setDocumentToDelete(null);
+    }
   };
 
   return (
@@ -124,9 +151,20 @@ export default function Page() {
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
-                <Link to="/editor">
-                  <Button className="rounded-lg bg-black hover:bg-gray-800">New Document</Button>
-                </Link>
+                <Button 
+                  variant="outline" 
+                  className="rounded-lg" 
+                  onClick={loadDocuments}
+                >
+                  Refresh
+                </Button>
+                <Button 
+                  className="rounded-lg bg-black hover:bg-gray-800"
+                  onClick={handleCreateDocument}
+                  disabled={isCreating}
+                >
+                  {isCreating ? 'Creating...' : 'New Document'}
+                </Button>
               </div>
             </div>
 
@@ -137,28 +175,28 @@ export default function Page() {
             ) : filteredDocuments.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16">
                 <p className="text-gray-500 mb-6">No documents found.</p>
-                <Button className="rounded-lg bg-black hover:bg-gray-800" onClick={() => window.location.href = '/editor'}>
-                  Create your first document
+                <Button 
+                  className="rounded-lg bg-black hover:bg-gray-800" 
+                  onClick={handleCreateDocument}
+                  disabled={isCreating}
+                >
+                  {isCreating ? 'Creating...' : 'Create your first document'}
                 </Button>
               </div>
             ) : (
               <div className="rounded-md border">
-                <div className="grid grid-cols-[1fr_200px_150px_100px_40px] gap-2 p-4 border-b font-medium text-sm text-gray-500">
+                <div className="grid grid-cols-[1fr_200px_40px] gap-2 p-4 border-b font-medium text-sm text-gray-500">
                   <div>Title</div>
                   <div>Last edited</div>
-                  <div>Author</div>
-                  <div>Nodes</div>
                   <div></div>
                 </div>
                 {filteredDocuments.map((doc) => {
                   const isStarred = starredDocuments.includes(doc.id.toString());
-                  const author = getRandomAuthor();
-                  const nodeCount = getRandomNodeCount();
                   
                   return (
                     <div 
                       key={doc.id}
-                      className="grid grid-cols-[1fr_200px_150px_100px_40px] gap-2 items-center p-4 hover:bg-gray-50 border-b last:border-b-0"
+                      className="grid grid-cols-[1fr_200px_40px] gap-2 items-center p-4 hover:bg-gray-50 border-b last:border-b-0"
                     >
                       <div className="flex items-center gap-3">
                         <FileText className="h-5 w-5 text-gray-400" />
@@ -172,8 +210,6 @@ export default function Page() {
                       <div className="text-sm text-gray-500">
                         Last edited {format(new Date(doc.updated_at), 'yyyy-MM-dd')}
                       </div>
-                      <div className="text-sm text-gray-500">{author}</div>
-                      <div className="text-sm text-gray-500">{nodeCount} nodes</div>
                       <div className="flex items-center">
                         <button 
                           onClick={() => toggleStarred(doc.id.toString())}
@@ -200,7 +236,13 @@ export default function Page() {
                             <DropdownMenuItem>Rename</DropdownMenuItem>
                             <DropdownMenuItem>Duplicate</DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-red-600">
+                            <DropdownMenuItem 
+                              className="text-red-600"
+                              onClick={() => {
+                                setDocumentToDelete(doc.id);
+                                setDeleteDialogOpen(true);
+                              }}
+                            >
                               Delete
                             </DropdownMenuItem>
                           </DropdownMenuContent>
@@ -213,6 +255,28 @@ export default function Page() {
             )}
           </div>
         </div>
+        
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you sure you want to delete this document?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the document.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={handleDeleteDocument}
+                disabled={isDeleting}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        
         <Toaster />
       </div>
     </SidebarProvider>

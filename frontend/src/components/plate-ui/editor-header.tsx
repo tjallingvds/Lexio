@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useEffect, useState, KeyboardEvent } from 'react';
+import { useEffect, useState, KeyboardEvent, useRef } from 'react';
 import { PanelLeftIcon, Save } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -12,29 +12,113 @@ import { Button } from '@/components/ui/button';
 import { updateDocument, fetchDocument } from '@/lib/api';
 import { useEditorRef } from '@udecode/plate/react';
 
-export function EditorHeader() {
+interface EditorHeaderProps {
+  documentId?: string;
+}
+
+export function EditorHeader({ documentId: propDocumentId }: EditorHeaderProps) {
   const { toggleSidebar, state } = useSidebar();
-  const { id } = useParams();
+  const params = useParams();
+  const routeId = params.id;
+  
+  // Fallback: Extract ID directly from URL path if route params fail
+  const getIdFromPath = () => {
+    const path = window.location.pathname;
+    // Match the last segment in /editor/DOCUMENT_ID pattern
+    const segments = path.split('/').filter(segment => segment.length > 0);
+    
+    // Make sure we don't treat "editor" as a document ID
+    if (segments.length >= 2 && segments[segments.length - 2] === 'editor') {
+      const potentialId = segments[segments.length - 1];
+      // Make sure this isn't just the word "editor" again
+      if (potentialId !== 'editor') {
+        return potentialId;
+      }
+    }
+    return null;
+  };
+  
+  // Fallback: Try to get ID from localStorage
+  const getIdFromLocalStorage = () => {
+    try {
+      return localStorage.getItem('last_created_document_id');
+    } catch (e) {
+      console.error('Failed to get document ID from localStorage:', e);
+      return null;
+    }
+  };
+  
+  // Fallback: Try to get ID from global window object
+  const getIdFromGlobalVar = () => {
+    try {
+      // First check the window variable
+      if (typeof window !== 'undefined' && (window as any).__currentDocumentId) {
+        return (window as any).__currentDocumentId;
+      }
+      
+      // Then check sessionStorage which persists across navigation
+      const sessionId = sessionStorage.getItem('current_document_id');
+      if (sessionId) {
+        // Also restore the global var if found in session
+        if (typeof window !== 'undefined') {
+          (window as any).__currentDocumentId = sessionId;
+        }
+        console.log('Restored document ID from sessionStorage:', sessionId);
+        return sessionId;
+      }
+      
+      return null;
+    } catch (e) {
+      console.error('Failed to get document ID from global window object or sessionStorage:', e);
+      return null;
+    }
+  };
+  
+  // Use prop ID first, then route ID, then extracted path ID, then localStorage, then global var
+  const id = propDocumentId || routeId || getIdFromPath() || getIdFromLocalStorage() || getIdFromGlobalVar();
+  
+  console.log("EditorHeader: propDocumentId=", propDocumentId, "params=", params, "routeId=", routeId, "extracted id=", getIdFromPath(), "localStorage id=", getIdFromLocalStorage(), "global id=", getIdFromGlobalVar(), "final id=", id);
+  
   const [title, setTitle] = useState('Untitled Document');
   const [loading, setLoading] = useState(false);
   const editor = useEditorRef();
+  const firstTitleLoad = useRef(true);
+  
+  // Ensure editor reference is valid
+  useEffect(() => {
+    if (editor) {
+      console.log('Editor reference available in header');
+    } else {
+      console.warn('No editor reference available in header');
+    }
+  }, [editor]);
   
   useEffect(() => {
-    if (id) {
+    if (id && firstTitleLoad.current) {
       const loadDocument = async () => {
         try {
+          console.log('Loading document title for ID:', id);
           const document = await fetchDocument(id);
           if (document) {
+            console.log('Document title loaded:', document.title);
             setTitle(document.title);
+          } else {
+            console.warn('Document not found for ID:', id);
           }
         } catch (error) {
-          console.error('Error loading document:', error);
+          console.error('Error loading document title:', error);
+        } finally {
+          firstTitleLoad.current = false;
         }
       };
       
       loadDocument();
+    } else {
+      console.warn('No document ID available for loading title or not first load');
     }
-  }, [id]);
+    // Only run this effect once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   const handleTitleChange = (e: React.FormEvent<HTMLHeadingElement>) => {
     const newTitle = e.currentTarget.textContent;
@@ -52,30 +136,67 @@ export function EditorHeader() {
   };
   
   const saveDocument = async (showToast = false) => {
-    if (!id) return;
+    // Final ID check with emergency extraction if still not found
+    let effectiveId = id;
+    
+    if (!effectiveId) {
+      // Try all possible sources for the document ID
+      effectiveId = routeId || getIdFromPath() || getIdFromLocalStorage() || getIdFromGlobalVar();
+      console.log("EMERGENCY ID EXTRACTION in saveDocument:", effectiveId);
+    }
+    
+    if (!effectiveId) {
+      console.error('Cannot save - no document ID available after multiple attempts');
+      toast.error('Cannot save - document ID not found');
+      return;
+    }
+    
+    // Store the document ID in localStorage for future use
+    try {
+      localStorage.setItem('last_created_document_id', effectiveId);
+      console.log('Stored document ID in localStorage:', effectiveId);
+    } catch (e) {
+      console.error('Failed to store document ID in localStorage:', e);
+    }
+    
+    // Try to use global force save method if available (added by PlateEditor)
+    if (typeof window !== 'undefined' && (window as any).__forceSave) {
+      console.log('Using global __forceSave method');
+      (window as any).__forceSave();
+      return;
+    }
     
     setLoading(true);
+    console.log('Save document triggered, showToast:', showToast, 'Document ID:', effectiveId);
+    
     try {
       // Get the current editor content if available
       let contentString = '';
       
       if (editor && editor.children) {
-        console.log('Saving editor content from header:', editor.children);
+        console.log('Saving editor content from header, editor children:', JSON.stringify(editor.children).substring(0, 100) + '...');
         contentString = JSON.stringify(editor.children);
       } else {
-        console.warn('Editor reference not available for saving');
+        console.warn('Editor reference not available for saving, using fallback content');
+        // Fall back to empty content, but continue to save the title
+        contentString = JSON.stringify([{
+          type: 'p',
+          children: [{ text: '' }],
+        }]);
       }
       
       // Save both title and content
-      const result = await updateDocument(id, title, contentString);
+      console.log('Calling updateDocument with id:', effectiveId, 'title:', title, 'contentLength:', contentString.length);
+      const result = await updateDocument(effectiveId, title, contentString);
       
       if (result) {
+        console.log('Save successful, document:', result.id);
         if (showToast) {
-          toast.success('Document saved');
+          // Force toast to show
+          toast.success('Document saved successfully');
         }
-        console.log('Save successful:', result);
       } else {
-        console.error('No result returned from update');
+        console.error('No result returned from update for document:', effectiveId);
         if (showToast) {
           toast.error('Error saving document');
         }
@@ -106,14 +227,19 @@ export function EditorHeader() {
         {/* Title with transform approach to fix direction issues */}
         <input
           type="text"
-          className="font-medium border-none outline-none bg-transparent p-0 m-0 max-w-[300px] whitespace-nowrap overflow-hidden text-ellipsis"
+          className="editor-header-title font-medium border-none outline-none bg-transparent p-0 m-0 max-w-[300px] whitespace-nowrap overflow-hidden text-ellipsis"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          onBlur={() => saveDocument(false)}
+          onBlur={() => {
+            // Explicitly save document when title input loses focus
+            if (title.trim()) {
+              saveDocument(false);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
-              e.currentTarget.blur();
+              e.currentTarget.blur(); // Trigger onBlur to save
             }
           }}
           style={{

@@ -2,9 +2,9 @@
 
 import { Toaster } from 'sonner';
 import { useEffect, useState } from 'react';
-import { createDocument } from '@/lib/api';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { createAndOpenDocument } from '@/lib/document-utils';
 
 import { SettingsProvider } from '@/components/editor/settings';
 import { AppSidebar } from '@/components/app-sidebar';
@@ -16,30 +16,35 @@ export default function Page() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [documentId, setDocumentId] = useState<string | null>(null);
+  const [creationAttempted, setCreationAttempted] = useState(false);
 
   useEffect(() => {
+    // Use the same consistent approach as our utility function
     const initDocument = async () => {
+      setCreationAttempted(true);
       try {
-        const doc = await createDocument('Untitled Document', '');
-        if (doc) {
-          setDocumentId(doc.id);
-          toast.success('Document created successfully');
-          navigate(`/editor/${doc.id}`);
+        const newDocId = await createAndOpenDocument();
+        
+        if (newDocId) {
+          setDocumentId(newDocId);
+          setLoading(false);
         } else {
+          // If document creation failed, go back home
           toast.error('Failed to create document');
+          navigate('/home');
         }
       } catch (error) {
         console.error('Error creating document:', error);
         toast.error('Failed to create document');
-      } finally {
-        setLoading(false);
+        navigate('/home');
       }
     };
 
     initDocument();
   }, [navigate]);
 
-  if (loading) {
+  // Only show loading state until we've attempted to create a document
+  if (loading && !creationAttempted) {
     return (
       <SidebarProvider>
         <div className="flex h-screen w-full" data-registry="plate">
@@ -54,6 +59,7 @@ export default function Page() {
     );
   }
 
+  // Show editor once document is created
   return (
     <SidebarProvider>
       <div className="flex h-screen w-full" data-registry="plate">
@@ -61,7 +67,8 @@ export default function Page() {
         <Separator orientation="vertical" className="h-full" />
         <div className="flex-1 overflow-auto">
           <SettingsProvider>
-            <ResizableEditor />
+            {/* Pass document ID directly to ensure it's available */}
+            <ResizableEditor documentId={documentId} />
           </SettingsProvider>
         </div>
 
