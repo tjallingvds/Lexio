@@ -9,4 +9,9 @@ flask-jwt-extended==4.5.3
 passlib==1.7.4
 bcrypt==4.0.1
 gunicorn==21.2.0
-dnspython==2.4.2 
+dnspython==2.4.2
+langchain==0.1.15
+langchain-community==0.0.18
+langchain-openai==0.0.7
+chromadb==0.4.22
+sentence-transformers==2.5.1 

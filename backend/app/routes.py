@@ -5,9 +5,16 @@ import os
 import json
 import io
 import tempfile
+import httpx
 from openai import OpenAI
 from .database import get_db
 from .auth import authenticate_user, hash_password, require_auth, create_access_token
+from .document_store import process_pdf, get_pdf_text, query_similar_content
+from .utils import create_openai_client
+import dotenv
+
+# Make sure to load environment variables
+dotenv.load_dotenv()
 
 # For PDF extraction
 import fitz  # PyMuPDF
@@ -18,8 +25,14 @@ main = Blueprint('main', __name__, url_prefix='/api')
 # Web routes blueprint without prefix for serving frontend
 web = Blueprint('web', __name__)
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Initialize OpenAI client with our utility function
+api_key = os.environ.get("OPENAI_API_KEY")
+if api_key:
+    print(f"Initializing OpenAI client with API key: {'*' * (len(api_key) - 8) + api_key[-8:]}")
+else:
+    print("WARNING: No OpenAI API key found in environment variables")
+    
+openai_client = create_openai_client(api_key)
 
 @web.route('/')
 def index():
@@ -211,8 +224,8 @@ def ai_command():
         
         print("Setting up OpenAI client")
         try:
-            # Set up the client with the provided API key
-            client = OpenAI(api_key=api_key)
+            # Use our utility function instead of direct initialization
+            client = create_openai_client(api_key)
         except Exception as e:
             print(f"Failed to initialize OpenAI client: {str(e)}")
             return jsonify({"error": f"Invalid API key: {str(e)}"}), 400
@@ -372,7 +385,7 @@ def delete_document(current_user, document_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-@main.route('/api/extract-pdf', methods=['POST'])
+@main.route('/extract-pdf', methods=['POST'])
 def extract_pdf_text():
     try:
         if 'pdf' not in request.files:
@@ -386,72 +399,70 @@ def extract_pdf_text():
         if not pdf_file.filename.lower().endswith('.pdf'):
             return jsonify({"error": "File must be a PDF"}), 400
             
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp:
-            pdf_file.save(temp.name)
-            temp_filename = temp.name
+        # Process PDF with LangChain integration
+        result = process_pdf(pdf_file)
+        
+        if not result["success"]:
+            return jsonify({"error": result["error"]}), 400
             
-        try:
-            # Extract text using PyMuPDF (fitz)
-            text = ""
-            page_count = 0
-            total_pages = 0
-            chunk_size = 50  # Process PDF in chunks of 50 pages
-            
-            with fitz.open(temp_filename) as doc:
-                total_pages = len(doc)
-                print(f"Processing PDF with {total_pages} pages")
-                
-                # Process in chunks to avoid memory issues with very large PDFs
-                for i in range(0, total_pages, chunk_size):
-                    end_page = min(i + chunk_size, total_pages)
-                    chunk_text = ""
-                    
-                    for page_num in range(i, end_page):
-                        try:
-                            page = doc[page_num]
-                            page_text = page.get_text()
-                            chunk_text += page_text + "\n\n"
-                            page_count += 1
-                            
-                            # Free memory
-                            page = None
-                        except Exception as page_error:
-                            print(f"Error extracting page {page_num}: {str(page_error)}")
-                            # Continue with next page if one fails
-                            continue
-                    
-                    # Append chunk to overall text
-                    text += chunk_text
-                    
-                    # Free memory after each chunk
-                    chunk_text = None
-                    
-                print(f"Successfully extracted text from {page_count} of {total_pages} pages")
-            
-            # Delete temporary file
-            os.unlink(temp_filename)
-            
-            # Check if we have meaningful text
-            if len(text) < 100:
-                return jsonify({
-                    "error": "Could not extract meaningful text from PDF",
-                    "text": text
-                }), 400
-            
-            return jsonify({
-                "text": text,
-                "pages": {
-                    "processed": page_count,
-                    "total": total_pages
-                }
-            })
-        except Exception as e:
-            # Delete temporary file in case of exception
-            if os.path.exists(temp_filename):
-                os.unlink(temp_filename)
-            print(f"PDF extraction error: {str(e)}")
-            return jsonify({"error": f"PDF extraction failed: {str(e)}"}), 500
+        # Return text and metadata
+        return jsonify({
+            "success": True,
+            "pdf_id": result["pdf_id"],
+            "text": result["text"],
+            "chunks": result["chunks"],
+            "token_estimate": result.get("token_estimate", 0),  # Use the more accurate estimate from document_store
+            "word_count": result.get("word_count", 0),
+            "file_path": result["file_path"],
+            "vector_storage": result.get("vector_storage", False),
+            "api_key_present": result.get("api_key_present", False)
+        })
+        
     except Exception as e:
-        print(f"Error processing PDF: {str(e)}")
-        return jsonify({"error": str(e)}), 500 
+        print(f"Error in PDF extraction: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@main.route('/pdf-content/<pdf_id>', methods=['GET'])
+def get_pdf_content(pdf_id):
+    """Get the full text content of a PDF"""
+    text = get_pdf_text(pdf_id)
+    
+    if not text:
+        return jsonify({"error": "PDF not found"}), 404
+        
+    return jsonify({"text": text})
+
+@main.route('/pdf-query', methods=['POST'])
+def query_pdf_content():
+    """Query PDFs for relevant content"""
+    try:
+        data = request.json
+        
+        if not data or 'query' not in data:
+            return jsonify({"error": "Query is required"}), 400
+            
+        query = data['query']
+        limit = data.get('limit', 5)
+        
+        # Check for API key
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return jsonify({
+                "success": False,
+                "error": "OpenAI API key not found. Please add your API key in the Settings panel.",
+                "results": []
+            })
+        
+        results = query_similar_content(query, limit)
+        
+        return jsonify({
+            "success": True,
+            "results": results
+        })
+    except Exception as e:
+        print(f"Error in PDF query: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "results": []
+        }) 
