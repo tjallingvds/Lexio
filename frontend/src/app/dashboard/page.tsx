@@ -17,19 +17,34 @@ export default function DashboardPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const loadDocuments = async () => {
+    setLoading(true);
+    try {
+      const docs = await fetchDocuments();
+      setDocuments(docs);
+    } catch (error) {
+      console.error('Failed to load documents:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadDocuments = async () => {
-      try {
-        const docs = await fetchDocuments();
-        setDocuments(docs);
-      } catch (error) {
-        console.error('Failed to load documents:', error);
-      } finally {
-        setLoading(false);
-      }
+    loadDocuments();
+  }, []);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      loadDocuments();
     };
 
+    window.addEventListener('focus', handleFocus);
+    
     loadDocuments();
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   return (

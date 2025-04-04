@@ -1,6 +1,7 @@
 from flask import Flask
 from flask_cors import CORS
 import os
+from .database import init_db
 
 def create_app(test_config=None):
     # Create and configure the app
@@ -28,6 +29,9 @@ def create_app(test_config=None):
         os.makedirs(app.instance_path)
     except OSError:
         pass
+        
+    # Initialize MongoDB connection
+    init_db()
 
     # Register blueprints
     from .routes import main, web

@@ -18,7 +18,7 @@ export default function Editor() {
       const loadDocument = async () => {
         setLoading(true);
         try {
-          const document = await fetchDocument(parseInt(id));
+          const document = await fetchDocument(id);
           if (!document) {
             setError('Document not found');
           }

@@ -1,4 +1,7 @@
 from flask import Blueprint, jsonify, request, render_template
+from bson import ObjectId
+from datetime import datetime
+from .database import get_db
 
 # API blueprint with /api prefix
 main = Blueprint('main', __name__, url_prefix='/api')
@@ -10,38 +13,29 @@ web = Blueprint('web', __name__)
 def index():
     return render_template('index.html')
 
-# Mock data for documents
-documents = [
-    {
-        "id": 1,
-        "title": "Getting Started Guide",
-        "content": "This is a sample document for Lexio.",
-        "updated_at": "2023-04-01T12:00:00Z"
-    },
-    {
-        "id": 2,
-        "title": "Project Proposal",
-        "content": "This is a project proposal document.",
-        "updated_at": "2023-04-02T14:30:00Z"
-    },
-    {
-        "id": 3,
-        "title": "Meeting Notes",
-        "content": "Notes from our weekly meeting.",
-        "updated_at": "2023-04-03T09:15:00Z"
-    }
-]
+# Helper function to serialize ObjectId to string
+def serialize_document(doc):
+    doc['id'] = str(doc.pop('_id'))
+    return doc
 
 @main.route('/documents', methods=['GET'])
 def get_documents():
-    return jsonify({"documents": documents})
+    db = get_db()
+    documents = list(db.documents.find())
+    # Convert ObjectId to string for JSON serialization
+    serialized_documents = [serialize_document(doc) for doc in documents]
+    return jsonify({"documents": serialized_documents})
 
-@main.route('/documents/<int:document_id>', methods=['GET'])
+@main.route('/documents/<document_id>', methods=['GET'])
 def get_document(document_id):
-    document = next((doc for doc in documents if doc["id"] == document_id), None)
-    if document:
-        return jsonify({"document": document})
-    return jsonify({"error": "Document not found"}), 404
+    db = get_db()
+    try:
+        document = db.documents.find_one({"_id": ObjectId(document_id)})
+        if document:
+            return jsonify({"document": serialize_document(document)})
+        return jsonify({"error": "Document not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 @main.route('/documents', methods=['POST'])
 def create_document():
@@ -49,12 +43,53 @@ def create_document():
     if not data or 'title' not in data:
         return jsonify({"error": "Missing title"}), 400
     
-    new_id = max(doc["id"] for doc in documents) + 1 if documents else 1
+    db = get_db()
     new_doc = {
-        "id": new_id,
         "title": data["title"],
         "content": data.get("content", ""),
-        "updated_at": "2023-04-04T10:00:00Z"  # Would use actual timestamp in production
+        "updated_at": datetime.utcnow().isoformat()
     }
-    documents.append(new_doc)
-    return jsonify({"document": new_doc}), 201 
+    
+    result = db.documents.insert_one(new_doc)
+    new_doc['_id'] = result.inserted_id
+    
+    return jsonify({"document": serialize_document(new_doc)}), 201
+
+@main.route('/documents/<document_id>', methods=['PUT'])
+def update_document(document_id):
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    db = get_db()
+    try:
+        update_data = {
+            "title": data.get("title"),
+            "content": data.get("content"),
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        # Remove None values
+        update_data = {k: v for k, v in update_data.items() if v is not None}
+        
+        result = db.documents.update_one(
+            {"_id": ObjectId(document_id)},
+            {"$set": update_data}
+        )
+        
+        if result.matched_count:
+            updated_doc = db.documents.find_one({"_id": ObjectId(document_id)})
+            return jsonify({"document": serialize_document(updated_doc)})
+        return jsonify({"error": "Document not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+@main.route('/documents/<document_id>', methods=['DELETE'])
+def delete_document(document_id):
+    db = get_db()
+    try:
+        result = db.documents.delete_one({"_id": ObjectId(document_id)})
+        if result.deleted_count:
+            return jsonify({"success": True})
+        return jsonify({"error": "Document not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400 

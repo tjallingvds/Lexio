@@ -45,26 +45,44 @@ export default function Page() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [starredDocuments, setStarredDocuments] = useState<number[]>([]);
+  const [starredDocuments, setStarredDocuments] = useState<string[]>([]);
 
-  // Fetch documents
+  // Load documents function
+  const loadDocuments = async () => {
+    setLoading(true);
+    try {
+      const docs = await fetchDocuments();
+      setDocuments(docs);
+    } catch (error) {
+      console.error('Failed to load documents:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch documents on initial load
   useEffect(() => {
-    const loadDocuments = async () => {
-      try {
-        const docs = await fetchDocuments();
-        setDocuments(docs);
-      } catch (error) {
-        console.error('Failed to load documents:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadDocuments();
   }, []);
 
+  // Refresh documents when window gets focus (user comes back to this page)
+  useEffect(() => {
+    const handleFocus = () => {
+      loadDocuments();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    
+    // Also refresh when component mounts to ensure fresh data
+    loadDocuments();
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
   // Toggle starred status
-  const toggleStarred = (docId: number) => {
+  const toggleStarred = (docId: string) => {
     setStarredDocuments(prev => 
       prev.includes(docId) 
         ? prev.filter(id => id !== docId)
@@ -133,7 +151,7 @@ export default function Page() {
                   <div></div>
                 </div>
                 {filteredDocuments.map((doc) => {
-                  const isStarred = starredDocuments.includes(doc.id);
+                  const isStarred = starredDocuments.includes(doc.id.toString());
                   const author = getRandomAuthor();
                   const nodeCount = getRandomNodeCount();
                   
@@ -158,7 +176,7 @@ export default function Page() {
                       <div className="text-sm text-gray-500">{nodeCount} nodes</div>
                       <div className="flex items-center">
                         <button 
-                          onClick={() => toggleStarred(doc.id)}
+                          onClick={() => toggleStarred(doc.id.toString())}
                           className="text-gray-400 hover:text-yellow-400"
                         >
                           <Star 

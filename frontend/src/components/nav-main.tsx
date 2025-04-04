@@ -1,6 +1,8 @@
 "use client"
 
 import { ChevronRight, FilePlus, LayoutDashboard, Files, Home, Plus, type LucideIcon, FileText } from "lucide-react"
+import { useState, useEffect } from 'react';
+import { Document, fetchDocuments } from '@/lib/api';
 
 import {
   Collapsible,
@@ -34,6 +36,37 @@ export function NavMain({
     }[]
   }[]
 }) {
+  const [recentDocuments, setRecentDocuments] = useState<Document[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadDocuments = async () => {
+    try {
+      const docs = await fetchDocuments();
+      setRecentDocuments(docs.slice(0, 3)); // Get the 3 most recent documents
+    } catch (error) {
+      console.error('Failed to load documents:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  // Refresh on focus
+  useEffect(() => {
+    const handleFocus = () => {
+      loadDocuments();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
   return (
     <>
       <SidebarGroup>
@@ -74,30 +107,30 @@ export function NavMain({
           </Button>
         </div>
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <a href="/editor/1" onClick={(e) => { e.preventDefault(); window.location.href = "/editor/1"; }}>
-                <FileText className="h-4 w-4" />
-                <span>Web Development Fundamentals</span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <a href="/editor/2" onClick={(e) => { e.preventDefault(); window.location.href = "/editor/2"; }}>
-                <FileText className="h-4 w-4" />
-                <span>Machine Learning Pipeline</span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <a href="/editor/3" onClick={(e) => { e.preventDefault(); window.location.href = "/editor/3"; }}>
-                <FileText className="h-4 w-4" />
-                <span>Biology Cell Structure</span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {loading ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton>
+                <span>Loading documents...</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : recentDocuments.length === 0 ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton>
+                <span>No documents yet</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : (
+            recentDocuments.map((doc) => (
+              <SidebarMenuItem key={doc.id}>
+                <SidebarMenuButton asChild>
+                  <a href={`/editor/${doc.id}`} onClick={(e) => { e.preventDefault(); window.location.href = `/editor/${doc.id}`; }}>
+                    <FileText className="h-4 w-4" />
+                    <span>{doc.title}</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))
+          )}
         </SidebarMenu>
       </SidebarGroup>
     </>
