@@ -141,6 +141,24 @@ export function AiChat() {
         model: 'gpt-4o',
       };
       
+      // Debug log - Check if the API key is available
+      console.log('API Key available:', !!keys.openai);
+      
+      if (!keys.openai) {
+        console.error('No API key available. Please set one in the settings.');
+        // Add error message to chat
+        const errorMessage: Message = {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: 'No API key available. Please configure your OpenAI API key in the Settings panel.',
+          timestamp: new Date(),
+        };
+        
+        setMessages(prevMessages => [...prevMessages, errorMessage]);
+        setThinking(false);
+        return;
+      }
+      
       // Call API directly
       const response = await fetch('/api/ai/command', {
         method: 'POST',
@@ -151,7 +169,20 @@ export function AiChat() {
       });
       
       if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
+        let errorMessage = `API request failed with status ${response.status}`;
+        
+        // Try to extract detailed error message
+        try {
+          const errorData = await response.json();
+          if (errorData && errorData.error) {
+            errorMessage = `${errorData.error}${errorData.details ? ': ' + errorData.details : ''}`;
+            console.error('API Error:', errorMessage);
+          }
+        } catch (e) {
+          console.error('Error parsing error response:', e);
+        }
+        
+        throw new Error(errorMessage);
       }
       
       console.log('Direct API response received');
@@ -175,43 +206,55 @@ export function AiChat() {
       };
       
       setMessages(prevMessages => [...prevMessages, tempMessage]);
+      console.log('Added temporary assistant message with id:', responseId);
       
       // Read the stream
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        // Convert the chunk to text
-        const chunk = new TextDecoder().decode(value);
-        
-        // Process the chunk (Server-Sent Events format)
-        const lines = chunk.split('\n\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.substring(6);
-            if (data === '[DONE]') {
-              // Stream is complete
-              console.log('Stream complete');
-              break;
-            }
-            
-            try {
-              const parsedData = JSON.parse(data);
-              if (parsedData.content) {
-                responseContent += parsedData.content;
-                
-                // Update the message with the current content
-                setMessages(prevMessages => prevMessages.map(msg => 
-                  msg.id === responseId 
-                    ? { ...msg, content: responseContent } 
-                    : msg
-                ));
+      let hasReceivedContent = false;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            console.log('Stream reading complete');
+            break;
+          }
+          
+          // Convert the chunk to text
+          const chunk = new TextDecoder().decode(value);
+          console.log('Received chunk:', chunk.substring(0, 50) + '...');
+          
+          // Process the chunk (Server-Sent Events format)
+          const lines = chunk.split('\n\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.substring(6);
+              if (data === '[DONE]') {
+                // Stream is complete
+                console.log('Stream complete marker received');
+                break;
               }
-            } catch (e) {
-              console.log('Error parsing chunk data:', e);
+              
+              try {
+                const parsedData = JSON.parse(data);
+                if (parsedData.content) {
+                  hasReceivedContent = true;
+                  responseContent += parsedData.content;
+                  console.log('Content update, length now:', responseContent.length);
+                  
+                  // Update the message with the current content
+                  setMessages(prevMessages => prevMessages.map(msg => 
+                    msg.id === responseId 
+                      ? { ...msg, content: responseContent } 
+                      : msg
+                  ));
+                }
+              } catch (e) {
+                console.log('Error parsing chunk data:', e, 'Raw data:', data);
+              }
             }
           }
         }
+      } catch (streamError) {
+        console.error('Error reading stream:', streamError);
       }
       
       // Finalize the response
@@ -226,11 +269,20 @@ export function AiChat() {
         ));
       } else {
         // No content received, show error message
+        console.error('No response content received from AI');
+        
         setMessages(prevMessages => prevMessages.map(msg => 
           msg.id === responseId 
-            ? { ...msg, content: 'No response received from AI.' } 
+            ? { 
+                ...msg, 
+                content: 'No response received from AI. This could be due to an issue with the API key or the API service. Please try again or check your API key configuration in settings.' 
+              } 
             : msg
         ));
+        
+        // Log additional diagnostics
+        console.log('API key being used:', keys.openai ? 'First 5 chars: ' + keys.openai.substring(0, 5) + '...' : 'None');
+        console.log('hasReceivedContent:', hasReceivedContent);
       }
       
       // Turn off the thinking state
@@ -243,7 +295,7 @@ export function AiChat() {
       const errorMessage: Message = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: 'Sorry, there was an error processing your request. Please try again.',
+        content: `Sorry, there was an error processing your request: ${error instanceof Error ? error.message : 'Unknown error'}. Please make sure your API key is correctly configured.`,
         timestamp: new Date(),
       };
       

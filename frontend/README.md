@@ -52,3 +52,28 @@ export default tseslint.config({
   },
 })
 ```
+
+## Environment Variables
+
+This project uses environment variables for sensitive information like API keys. To set up:
+
+1. Create a `.env.local` file in the frontend directory (this won't be committed to Git)
+2. Add your API keys:
+   ```
+   VITE_OPENAI_API_KEY=your_actual_openai_key_here
+   VITE_UPLOADTHING_API_KEY=your_actual_uploadthing_key_here
+   ```
+3. The application will automatically use these values
+
+> ⚠️ **IMPORTANT:** Never commit API keys directly in your code or push the `.env.local` file to version control! 
+
+### API Key Security Best Practices
+
+- The `.env.local` file is already in `.gitignore` to prevent accidentally committing secrets
+- If using a CI/CD pipeline, set environment variables there rather than in files
+- For production deployments, use proper secret management offered by your hosting provider 
+- Consider rotating API keys periodically
+- For server-side endpoints, avoid exposing the API key to the frontend when possible
+- If your API key has been compromised, regenerate it immediately in your OpenAI dashboard
+
+You can obtain an OpenAI API key from [https://platform.openai.com/api-keys](https://platform.openai.com/api-keys)

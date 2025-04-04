@@ -65,8 +65,24 @@ const SettingsContext = createContext<SettingsContextType | undefined>(
 );
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
+  // Initialize with empty string, will be filled from env var
+  let initialApiKey = '';
+  
+  // Try to use environment variable first
+  try {
+    const envApiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    if (envApiKey && typeof envApiKey === 'string' && envApiKey.length > 0) {
+      initialApiKey = envApiKey;
+      console.log('Environment API Key loaded successfully');
+    } else {
+      console.warn('Environment API Key not found or empty');
+    }
+  } catch (e) {
+    console.error('Error accessing environment variables:', e);
+  }
+  
   const [keys, setKeys] = useState({
-    openai: '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',
+    openai: initialApiKey,
     uploadthing: '',
   });
   const [model, setModel] = useState<Model>(models[1]);
