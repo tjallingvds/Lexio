@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronRight, FilePlus, LayoutDashboard, Files, type LucideIcon } from "lucide-react"
+import { ChevronRight, FilePlus, LayoutDashboard, Files, Home, type LucideIcon } from "lucide-react"
 
 import {
   Collapsible,
@@ -35,22 +35,25 @@ export function NavMain({
 }) {
   return (
     <>
+      <SidebarMenu className="mb-2 mt-0">
+        <SidebarMenuItem className="mx-2">
+          <SidebarMenuButton asChild tooltip="New document" className="border rounded-md w-full">
+            <a href="/editor" onClick={(e) => { e.preventDefault(); window.location.href = "/editor"; }}>
+              <FilePlus className="h-4 w-4" />
+              <span>New document</span>
+            </a>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+      
       <SidebarGroup>
         <SidebarGroupLabel>Get started</SidebarGroupLabel>
         <SidebarMenu>
-          <SidebarMenuItem className="border rounded-md mx-2">
-            <SidebarMenuButton asChild tooltip="New document">
-              <a href="/editor" onClick={(e) => { e.preventDefault(); window.location.href = "/editor"; }}>
-                <FilePlus className="h-4 w-4" />
-                <span>New document</span>
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="Dashboard">
+            <SidebarMenuButton asChild tooltip="Home">
               <a href="/dashboard" onClick={(e) => { e.preventDefault(); window.location.href = "/dashboard"; }}>
-                <LayoutDashboard className="h-4 w-4" />
-                <span>Dashboard</span>
+                <Home className="h-4 w-4" />
+                <span>Home</span>
               </a>
             </SidebarMenuButton>
           </SidebarMenuItem>
