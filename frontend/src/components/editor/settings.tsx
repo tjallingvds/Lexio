@@ -66,10 +66,10 @@ const SettingsContext = createContext<SettingsContextType | undefined>(
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [keys, setKeys] = useState({
-    openai: '',
+    openai: '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',
     uploadthing: '',
   });
-  const [model, setModel] = useState<Model>(models[0]);
+  const [model, setModel] = useState<Model>(models[1]);
 
   const setKey = (service: string, key: string) => {
     setKeys((prev) => ({ ...prev, [service]: key }));

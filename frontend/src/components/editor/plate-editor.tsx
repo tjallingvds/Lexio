@@ -83,6 +83,15 @@ export function PlateEditor() {
           console.log('Editor content changed:', editor.children);
           setContent(editor.children);
           saveContent(editor.children);
+          
+          // Send content to AI chat via window messaging
+          window.postMessage(
+            { 
+              type: 'editor-content', 
+              content: JSON.stringify(editor.children)
+            }, 
+            window.location.origin
+          );
         }
       };
       
@@ -92,6 +101,17 @@ export function PlateEditor() {
       }, 500);
       
       document.addEventListener('keyup', handleContentChange);
+      
+      // Initial content update
+      if (editor.children) {
+        window.postMessage(
+          { 
+            type: 'editor-content', 
+            content: JSON.stringify(editor.children)
+          }, 
+          window.location.origin
+        );
+      }
       
       // Remove event listener on cleanup
       return () => {
