@@ -1,6 +1,9 @@
 {
   "dependencies": {
     "@ai-sdk/openai": "^1.3.6",
+    "@udecode/plate-docx": "^47.0.0",
+    "@udecode/plate-juice": "^44.0.0",
+    "@udecode/plate-yjs": "^44.0.0",
     "ai": "^4.2.11",
     "date-fns": "^4.1.0"
   }

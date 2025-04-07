@@ -15,6 +15,7 @@ export const RedoToolbarButton = withRef<typeof ToolbarButton>((props, ref) => {
   return (
     <ToolbarButton
       ref={ref}
+      data-plate-focus
       disabled={disabled}
       onClick={() => editor.redo()}
       onMouseDown={(e) => e.preventDefault()}
@@ -36,6 +37,7 @@ export const UndoToolbarButton = withRef<typeof ToolbarButton>((props, ref) => {
   return (
     <ToolbarButton
       ref={ref}
+      data-plate-focus
       disabled={disabled}
       onClick={() => editor.undo()}
       onMouseDown={(e) => e.preventDefault()}

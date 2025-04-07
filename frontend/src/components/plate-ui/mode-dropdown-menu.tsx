@@ -31,7 +31,7 @@ export function ModeDropdownMenu(props: DropdownMenuProps) {
 
   let value = 'editing';
 
-  if (readOnly) value = 'viewing';
+  if (readOnly) value = 'editing';
 
   if (isSuggesting) value = 'suggestion';
 
@@ -46,12 +46,6 @@ export function ModeDropdownMenu(props: DropdownMenuProps) {
       <>
         <PencilLineIcon />
         <span className="hidden lg:inline">Suggestion</span>
-      </>
-    ),
-    viewing: (
-      <>
-        <Eye />
-        <span className="hidden lg:inline">Viewing</span>
       </>
     ),
   };
@@ -72,35 +66,21 @@ export function ModeDropdownMenu(props: DropdownMenuProps) {
         <DropdownMenuRadioGroup
           value={value}
           onValueChange={(newValue) => {
-            if (newValue === 'viewing') {
-              setReadOnly(true);
-
-              return;
-            } else {
-              setReadOnly(false);
-            }
+            setReadOnly(false);
 
             if (newValue === 'suggestion') {
               editor.setOption(SuggestionPlugin, 'isSuggesting', true);
-
-              return;
             } else {
               editor.setOption(SuggestionPlugin, 'isSuggesting', false);
             }
 
             if (newValue === 'editing') {
               editor.tf.focus();
-
-              return;
             }
           }}
         >
           <DropdownMenuRadioItem value="editing">
             {item.editing}
-          </DropdownMenuRadioItem>
-
-          <DropdownMenuRadioItem value="viewing">
-            {item.viewing}
           </DropdownMenuRadioItem>
 
           <DropdownMenuRadioItem value="suggestion">

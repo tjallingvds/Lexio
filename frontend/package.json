@@ -42,6 +42,7 @@
     "@radix-ui/react-toggle-group": "^1.1.2",
     "@radix-ui/react-toolbar": "^1.1.2",
     "@radix-ui/react-tooltip": "^1.1.8",
+    "@supabase/supabase-js": "^2.49.4",
     "@tailwindcss/vite": "^4.1.2",
     "@udecode/cmdk": "^0.2.0",
     "@udecode/cn": "^46.0.9",
@@ -88,6 +89,7 @@
     "@udecode/plate-table": "^46.0.11",
     "@udecode/plate-toggle": "^46.0.11",
     "@udecode/plate-trailing-block": "^44.0.0",
+    "@udecode/plate-yjs": "^44.0.0",
     "@uploadthing/react": "^7.1.0",
     "ai": "^4.2.11",
     "class-variance-authority": "^0.7.1",
@@ -99,6 +101,7 @@
     "input-otp": "^1.4.2",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.487.0",
+    "nanoid": "^5.1.5",
     "next-themes": "^0.4.6",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.0.379",
@@ -139,5 +142,10 @@
     "typescript": "~5.7.2",
     "typescript-eslint": "^8.24.1",
     "vite": "^6.2.0"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

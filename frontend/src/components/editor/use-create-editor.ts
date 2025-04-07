@@ -21,12 +21,14 @@ import {
 } from '@udecode/plate-code-block/react';
 import { CommentsPlugin } from '@udecode/plate-comments/react';
 import { DatePlugin } from '@udecode/plate-date/react';
+import { DocxPlugin } from '@udecode/plate-docx';
 import { EmojiInputPlugin } from '@udecode/plate-emoji/react';
 import { ExcalidrawPlugin } from '@udecode/plate-excalidraw/react';
 import { HEADING_KEYS } from '@udecode/plate-heading';
 import { TocPlugin } from '@udecode/plate-heading/react';
 import { HighlightPlugin } from '@udecode/plate-highlight/react';
 import { HorizontalRulePlugin } from '@udecode/plate-horizontal-rule/react';
+import { JuicePlugin } from '@udecode/plate-juice';
 import { KbdPlugin } from '@udecode/plate-kbd/react';
 import { ColumnItemPlugin, ColumnPlugin } from '@udecode/plate-layout/react';
 import { LinkPlugin } from '@udecode/plate-link/react';
@@ -61,6 +63,8 @@ import {
   PlateLeaf,
   usePlateEditor,
 } from '@udecode/plate/react';
+import { CursorOverlayPlugin } from '@udecode/plate-selection/react';
+import React from 'react';
 
 import { copilotPlugins } from '@/components/editor/plugins/copilot-plugins';
 import { editorPlugins } from '@/components/editor/plugins/editor-plugins';
@@ -105,6 +109,8 @@ import { TableElement } from '@/components/plate-ui/table-element';
 import { TableRowElement } from '@/components/plate-ui/table-row-element';
 import { TocElement } from '@/components/plate-ui/toc-element';
 import { ToggleElement } from '@/components/plate-ui/toggle-element';
+import { CursorOverlay } from '@/components/plate-ui/cursor-overlay';
+import { FloatingTocPlugin } from '@/components/plate-ui/floating-toc';
 
 export const viewComponents = {
   [AudioPlugin.key]: MediaAudioElement,
@@ -187,6 +193,14 @@ export const useCreateEditor = (
         ...editorPlugins,
         FixedToolbarPlugin,
         FloatingToolbarPlugin,
+        CursorOverlayPlugin.configure({
+          render: { 
+            afterEditable: () => React.createElement(CursorOverlay)
+          },
+        }),
+        FloatingTocPlugin,
+        DocxPlugin,
+        JuicePlugin,
       ],
       value: [
         {

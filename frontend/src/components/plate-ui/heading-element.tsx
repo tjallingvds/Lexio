@@ -25,11 +25,15 @@ const HeadingElementVariants = withVariants(PlateElement, headingVariants, [
 
 export const HeadingElement = withRef<typeof HeadingElementVariants>(
   ({ children, variant = 'h1', ...props }, ref) => {
+    // Make the element's ID available for TOC navigation
+    const elementId = props.element?.id;
+    
     return (
       <HeadingElementVariants
         ref={ref}
         as={variant!}
         variant={variant}
+        id={elementId}
         {...props}
       >
         {children}

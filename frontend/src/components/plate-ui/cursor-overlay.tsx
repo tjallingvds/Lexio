@@ -52,13 +52,33 @@ export function Cursor({
 }
 
 export function CursorOverlay() {
-  const { cursors } = useCursorOverlay();
+  const { cursors, refresh } = useCursorOverlay({
+    minSelectionWidth: 1,
+    refreshOnResize: true,
+  });
 
   return (
     <>
-      {cursors.map((cursor) => (
-        <Cursor key={cursor.id} {...cursor} />
-      ))}
+      {cursors.map((cursor) => {
+        const { id } = cursor;
+
+        return (
+          <div key={id}>
+            {cursor.selectionRects.map((rect, i) => (
+              <div
+                key={i}
+                className="bg-blue-500/30 absolute pointer-events-none"
+                style={{
+                  left: rect.left,
+                  top: rect.top,
+                  width: rect.width,
+                  height: rect.height,
+                }}
+              />
+            ))}
+          </div>
+        );
+      })}
     </>
   );
 }

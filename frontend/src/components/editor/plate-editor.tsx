@@ -5,7 +5,7 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import debounce from 'lodash/debounce';
 import { useParams, useLocation } from 'react-router-dom';
-import { toast, Toaster } from 'sonner';
+import { toast } from "sonner";
 
 import { Plate } from '@udecode/plate/react';
 import { Value } from '@udecode/plate';
@@ -15,6 +15,9 @@ import { SettingsDialog } from '@/components/editor/settings';
 import { Editor, EditorContainer } from '@/components/plate-ui/editor';
 import { updateDocument, fetchDocument } from '@/lib/api';
 import { SaveIndicator } from '@/components/editor/save-indicator';
+import { useToast } from "@/components/ui/use-toast";
+import { DocxPasteNotification } from '@/components/editor/docx-paste-notification';
+import { FloatingTocPlugin } from '@/components/plate-ui/floating-toc';
 
 // Save states for tracking
 export enum SaveState {
@@ -129,8 +132,62 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
     
     console.log('PlateEditor rendering with document ID:', id, 'isNewDocument:', isNewDocument);
     
-    // Create editor
-    const editor = useCreateEditor();
+    // Create editor with proper paste detection
+    const editor = useCreateEditor({
+      // Remove the inline paste handler
+    });
+    
+    // State for DOCX paste notification
+    const [showDocxNotification, setShowDocxNotification] = useState(false);
+    
+    // Add a separate effect to handle DOCX paste detection via event listener
+    useEffect(() => {
+      if (!editor) return;
+      
+      const handlePaste = (event: ClipboardEvent) => {
+        // Check if pasted content is from a DOCX file
+        const clipboardItems = event.clipboardData?.items;
+        if (clipboardItems) {
+          for (let i = 0; i < clipboardItems.length; i++) {
+            const item = clipboardItems[i];
+            if (item.type.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document') ||
+                item.type.includes('application/msword')) {
+              // Show notification instead of toast
+              setShowDocxNotification(true);
+              break;
+            }
+          }
+        }
+      };
+      
+      // Handle custom test event for DOCX paste
+      const handleTestDocxPaste = (event: Event) => {
+        // Show the notification when our test event is triggered
+        setShowDocxNotification(true);
+      };
+      
+      // Get the editor DOM element when editor UID is available
+      if (editor.uid) {
+        // Use a short timeout to ensure the editor is mounted
+        setTimeout(() => {
+          const editorElement = document.getElementById(editor.uid);
+          if (editorElement) {
+            editorElement.addEventListener('paste', handlePaste);
+            // Add listener for our custom test event
+            editorElement.addEventListener('docx-paste-test', handleTestDocxPaste);
+          }
+        }, 500);
+        
+        return () => {
+          const editorElement = document.getElementById(editor.uid);
+          if (editorElement) {
+            editorElement.removeEventListener('paste', handlePaste);
+            // Remove the test event listener
+            editorElement.removeEventListener('docx-paste-test', handleTestDocxPaste);
+          }
+        };
+      }
+    }, [editor]);
     
     // Flag to track if we've loaded real content
     const hasLoadedRealContent = useRef(false);
@@ -775,7 +832,7 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
     }
 
     return (
-      <div className="h-full flex flex-col">
+      <div className="flex flex-col w-full h-full relative">
         <DndProvider backend={HTML5Backend}>
           <Plate 
             editor={editor}
@@ -794,11 +851,18 @@ export const PlateEditor = React.forwardRef<{ forceSave?: () => void }, PlateEdi
             </div>
             
             <SettingsDialog />
+            
+            {/* Floating Table of Contents will be rendered by the plugin */}
           </Plate>
         </DndProvider>
         
         <SaveIndicator saveState={saveState} className="fixed bottom-2 right-2 z-10 flex items-center" />
-        <Toaster position="top-right" />
+        
+        {/* DOCX paste notification */}
+        <DocxPasteNotification 
+          visible={showDocxNotification}
+          onClose={() => setShowDocxNotification(false)}
+        />
       </div>
     );
   }

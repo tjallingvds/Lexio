@@ -106,6 +106,7 @@ const ToolbarButton = withTooltip(
         >
           <ToolbarToggleItem
             ref={ref}
+            data-plate-focus
             className={cn(
               toolbarButtonVariants({
                 size,
@@ -137,6 +138,7 @@ const ToolbarButton = withTooltip(
       ) : (
         <ToolbarPrimitive.Button
           ref={ref}
+          data-plate-focus
           className={cn(
             toolbarButtonVariants({
               size,

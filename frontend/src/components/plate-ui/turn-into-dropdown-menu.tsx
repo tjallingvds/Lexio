@@ -7,7 +7,9 @@ import type { DropdownMenuProps } from '@radix-ui/react-dropdown-menu';
 import { BlockquotePlugin } from '@udecode/plate-block-quote/react';
 import { CodeBlockPlugin } from '@udecode/plate-code-block/react';
 import { HEADING_KEYS } from '@udecode/plate-heading';
+import { HorizontalRulePlugin } from '@udecode/plate-horizontal-rule/react';
 import { INDENT_LIST_KEYS, ListStyleType } from '@udecode/plate-indent-list';
+import { EquationPlugin } from '@udecode/plate-math/react';
 import { TogglePlugin } from '@udecode/plate-toggle/react';
 import {
   ParagraphPlugin,
@@ -23,8 +25,10 @@ import {
   Heading3Icon,
   ListIcon,
   ListOrderedIcon,
+  MinusIcon,
   PilcrowIcon,
   QuoteIcon,
+  RadicalIcon,
   SquareIcon,
 } from 'lucide-react';
 
@@ -104,6 +108,18 @@ const turnIntoItems = [
     keywords: ['citation', 'blockquote', '>'],
     label: 'Quote',
     value: BlockquotePlugin.key,
+  },
+  {
+    icon: <MinusIcon />,
+    keywords: ['hr', 'divider', '---'],
+    label: 'Divider',
+    value: HorizontalRulePlugin.key,
+  },
+  {
+    icon: <RadicalIcon />,
+    keywords: ['math', 'formula', 'equation'],
+    label: 'Equation',
+    value: EquationPlugin.key,
   },
   {
     icon: <Columns3Icon />,

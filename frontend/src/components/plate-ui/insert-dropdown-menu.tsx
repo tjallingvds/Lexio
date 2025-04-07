@@ -17,7 +17,7 @@ import {
   EquationPlugin,
   InlineEquationPlugin,
 } from '@udecode/plate-math/react';
-import { ImagePlugin, MediaEmbedPlugin } from '@udecode/plate-media/react';
+import { ImagePlugin } from '@udecode/plate-media/react';
 import { TablePlugin } from '@udecode/plate-table/react';
 import { TogglePlugin } from '@udecode/plate-toggle/react';
 import {
@@ -30,7 +30,6 @@ import {
   ChevronRightIcon,
   Columns3Icon,
   FileCodeIcon,
-  FilmIcon,
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
@@ -79,41 +78,16 @@ interface Item {
 
 const groups: Group[] = [
   {
-    group: 'Basic blocks',
+    group: 'Special blocks',
     items: [
       {
-        icon: <PilcrowIcon />,
-        label: 'Paragraph',
-        value: ParagraphPlugin.key,
-      },
-      {
-        icon: <Heading1Icon />,
-        label: 'Heading 1',
-        value: HEADING_KEYS.h1,
-      },
-      {
-        icon: <Heading2Icon />,
-        label: 'Heading 2',
-        value: HEADING_KEYS.h2,
-      },
-      {
-        icon: <Heading3Icon />,
-        label: 'Heading 3',
-        value: HEADING_KEYS.h3,
-      },
-      {
-        icon: <TableIcon />,
-        label: 'Table',
-        value: TablePlugin.key,
-      },
-      {
         icon: <FileCodeIcon />,
-        label: 'Code',
+        label: 'Code block',
         value: CodeBlockPlugin.key,
       },
       {
         icon: <QuoteIcon />,
-        label: 'Quote',
+        label: 'Quote block',
         value: BlockquotePlugin.key,
       },
       {
@@ -121,71 +95,6 @@ const groups: Group[] = [
         label: 'Divider',
         value: HorizontalRulePlugin.key,
       },
-    ].map((item) => ({
-      ...item,
-      onSelect: (editor, value) => {
-        insertBlock(editor, value);
-      },
-    })),
-  },
-  {
-    group: 'Lists',
-    items: [
-      {
-        icon: <ListIcon />,
-        label: 'Bulleted list',
-        value: ListStyleType.Disc,
-      },
-      {
-        icon: <ListOrderedIcon />,
-        label: 'Numbered list',
-        value: ListStyleType.Decimal,
-      },
-      {
-        icon: <SquareIcon />,
-        label: 'To-do list',
-        value: INDENT_LIST_KEYS.todo,
-      },
-      {
-        icon: <ChevronRightIcon />,
-        label: 'Toggle list',
-        value: TogglePlugin.key,
-      },
-    ].map((item) => ({
-      ...item,
-      onSelect: (editor, value) => {
-        insertBlock(editor, value);
-      },
-    })),
-  },
-  {
-    group: 'Media',
-    items: [
-      {
-        icon: <ImageIcon />,
-        label: 'Image',
-        value: ImagePlugin.key,
-      },
-      {
-        icon: <FilmIcon />,
-        label: 'Embed',
-        value: MediaEmbedPlugin.key,
-      },
-      {
-        icon: <PenToolIcon />,
-        label: 'Excalidraw',
-        value: ExcalidrawPlugin.key,
-      },
-    ].map((item) => ({
-      ...item,
-      onSelect: (editor, value) => {
-        insertBlock(editor, value);
-      },
-    })),
-  },
-  {
-    group: 'Advanced blocks',
-    items: [
       {
         icon: <TableOfContentsIcon />,
         label: 'Table of contents',
@@ -196,12 +105,6 @@ const groups: Group[] = [
         label: '3 columns',
         value: 'action_three_columns',
       },
-      {
-        focusEditor: false,
-        icon: <RadicalIcon />,
-        label: 'Equation',
-        value: EquationPlugin.key,
-      },
     ].map((item) => ({
       ...item,
       onSelect: (editor, value) => {
@@ -210,12 +113,13 @@ const groups: Group[] = [
     })),
   },
   {
-    group: 'Inline',
+    group: 'Advanced elements',
     items: [
       {
-        icon: <Link2Icon />,
-        label: 'Link',
-        value: LinkPlugin.key,
+        focusEditor: false,
+        icon: <RadicalIcon />,
+        label: 'Equation',
+        value: EquationPlugin.key,
       },
       {
         focusEditor: true,
@@ -232,7 +136,9 @@ const groups: Group[] = [
     ].map((item) => ({
       ...item,
       onSelect: (editor, value) => {
-        insertInlineElement(editor, value);
+        item.value === InlineEquationPlugin.key 
+          ? insertInlineElement(editor, value)
+          : insertBlock(editor, value);
       },
     })),
   },

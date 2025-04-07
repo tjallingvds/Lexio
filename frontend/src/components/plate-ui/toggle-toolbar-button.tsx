@@ -17,7 +17,7 @@ export const ToggleToolbarButton = withRef<typeof ToolbarButton>(
     const { props } = useToggleToolbarButton(state);
 
     return (
-      <ToolbarButton ref={ref} tooltip="Toggle" {...props} {...rest}>
+      <ToolbarButton ref={ref} data-plate-focus tooltip="Toggle" {...props} {...rest}>
         <ListCollapseIcon />
       </ToolbarButton>
     );

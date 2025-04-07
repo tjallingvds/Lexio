@@ -15,6 +15,7 @@ export const AIToolbarButton = withRef<typeof ToolbarButton>(
     return (
       <ToolbarButton
         ref={ref}
+        data-plate-focus
         {...rest}
         onClick={() => {
           api.aiChat.show();
