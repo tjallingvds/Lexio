@@ -1,4 +1,124 @@
-const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:5001/api';
+/**
+ * API client for handling HTTP requests with error handling
+ */
+
+// Get the API base URL from environment or use the default
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+
+// Types for authentication and API responses
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  [key: string]: any;
+}
+
+export interface AuthResponse {
+  user: User;
+  access_token: string;
+}
+
+// Generic API request handler with error handling
+async function apiRequest<T>(
+  endpoint: string, 
+  options: RequestInit = {}
+): Promise<T> {
+  // Get the token if available
+  const token = localStorage.getItem('token');
+  
+  // Set headers
+  const headers = new Headers(options.headers);
+  headers.set('Content-Type', 'application/json');
+  
+  // Add authentication header if token exists
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  
+  try {
+    // Make the request
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+    
+    // Get the response text
+    const text = await response.text();
+    
+    // Try to parse the response as JSON
+    let data;
+    try {
+      // Only try to parse if there's content
+      data = text ? JSON.parse(text) : {};
+    } catch (error) {
+      console.error('Error parsing JSON response:', error);
+      throw new Error('Invalid response from server. Please try again.');
+    }
+    
+    // Check if the response was successful
+    if (!response.ok) {
+      const errorMessage = data.error || 'Something went wrong';
+      throw new Error(errorMessage);
+    }
+    
+    return data as T;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Network error. Please check your connection.');
+  }
+}
+
+// Authentication methods
+export const auth = {
+  /**
+   * Log in a user
+   */
+  async login(email: string, password: string): Promise<AuthResponse> {
+    return apiRequest<AuthResponse>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+  },
+  
+  /**
+   * Register a new user
+   */
+  async register(name: string, email: string, password: string): Promise<AuthResponse> {
+    return apiRequest<AuthResponse>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
+    });
+  },
+  
+  /**
+   * Get the current user's profile
+   */
+  async getCurrentUser(): Promise<{ user: User }> {
+    return apiRequest<{ user: User }>('/api/auth/me');
+  },
+  
+  /**
+   * Log out the current user
+   */
+  logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+  },
+  
+  /**
+   * Check if a user is authenticated
+   */
+  isAuthenticated(): boolean {
+    return !!localStorage.getItem('token');
+  },
+};
+
+// Export default API
+export default {
+  auth,
+};
 
 export interface Document {
   id: string;
@@ -22,7 +142,7 @@ function getAuthHeaders() {
 
 export async function fetchDocuments(): Promise<Document[]> {
   try {
-    const response = await fetch(`${API_URL}/documents`, {
+    const response = await fetch(`${API_BASE_URL}/api/documents`, {
       headers: getAuthHeaders()
     });
     if (!response.ok) {
@@ -48,7 +168,7 @@ export async function fetchDocument(id: string): Promise<Document | null> {
     }
     
     console.log(`Cache miss or expired for document ID: ${id}, fetching from server`);
-    const response = await fetch(`${API_URL}/documents/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${id}`, {
       headers: getAuthHeaders()
     });
     if (!response.ok) {
@@ -75,7 +195,7 @@ export async function createDocument(title: string, content: string = ''): Promi
   try {
     console.log('API createDocument called with:', { title, contentLength: content.length });
     
-    const response = await fetch(`${API_URL}/documents`, {
+    const response = await fetch(`${API_BASE_URL}/api/documents`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ title, content }),
@@ -124,7 +244,7 @@ export async function updateDocument(id: string, title?: string, content?: strin
     
     console.log('Request body keys:', Object.keys(requestBody));
     
-    const response = await fetch(`${API_URL}/documents/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${id}`, {
       method: 'PUT',
       headers: getAuthHeaders(),
       body: JSON.stringify(requestBody),
@@ -163,7 +283,7 @@ export async function deleteDocument(id: string): Promise<boolean> {
     
     console.log('Deleting document with ID:', id);
     
-    const response = await fetch(`${API_URL}/documents/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${id}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
     });

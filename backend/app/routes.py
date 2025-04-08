@@ -6,6 +6,7 @@ import json
 import io
 import tempfile
 import httpx
+import base64
 from openai import OpenAI
 from .database import get_db
 from .auth import authenticate_user, hash_password, require_auth, create_access_token
@@ -66,66 +67,107 @@ def register():
     try:
         data = request.get_json()
         
-        if not data or not data.get('email') or not data.get('password'):
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        if not data.get('email') or not data.get('password'):
             return jsonify({"error": "Email and password are required"}), 400
         
+        # Check if MongoDB connection is established
         db = get_db()
+        if not db:
+            return jsonify({"error": "Database connection failed. Please try again later."}), 500
         
         # Check if user already exists
         if db.users.find_one({"email": data['email']}):
             return jsonify({"error": "Email already registered"}), 409
         
         # Create new user
-        new_user = {
-            "name": data.get('name', ''),
-            "email": data['email'],
-            "password": hash_password(data['password']),
-            "created_at": datetime.utcnow().isoformat()
-        }
-        
-        result = db.users.insert_one(new_user)
-        new_user['_id'] = result.inserted_id
+        try:
+            new_user = {
+                "name": data.get('name', ''),
+                "email": data['email'],
+                "password": hash_password(data['password']),
+                "created_at": datetime.utcnow().isoformat()
+            }
+            
+            result = db.users.insert_one(new_user)
+            new_user['_id'] = result.inserted_id
+        except Exception as user_err:
+            print(f"User creation error: {str(user_err)}")
+            return jsonify({"error": f"Failed to create user: {str(user_err)}"}), 500
         
         # Generate access token
-        access_token = create_access_token(identity=str(result.inserted_id))
+        try:
+            access_token = create_access_token(identity=str(result.inserted_id))
+        except Exception as token_err:
+            print(f"Token generation error: {str(token_err)}")
+            return jsonify({"error": "Authentication error. Failed to generate token."}), 500
         
         # Ensure serialized_user is actually a serializable dict
-        serialized_user = serialize_user(new_user)
+        try:
+            serialized_user = serialize_user(new_user)
+        except Exception as serialize_err:
+            print(f"User serialization error: {str(serialize_err)}")
+            return jsonify({"error": "Failed to process user data"}), 500
         
-        return jsonify({
+        # Create and return the JSON response
+        response_data = {
             "user": serialized_user,
             "access_token": access_token
-        }), 201
+        }
+        
+        return jsonify(response_data), 201
     except Exception as e:
         print(f"Registration error: {str(e)}")
-        return jsonify({"error": "Registration failed: " + str(e)}), 400
+        return jsonify({"error": f"Registration failed: {str(e)}"}), 500
 
 @main.route('/auth/login', methods=['POST'])
 def login():
     try:
         data = request.get_json()
         
-        if not data or not data.get('email') or not data.get('password'):
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        if not data.get('email') or not data.get('password'):
             return jsonify({"error": "Email and password are required"}), 400
         
+        # Check if MongoDB connection is established
+        db = get_db()
+        if not db:
+            return jsonify({"error": "Database connection failed. Please try again later."}), 500
+        
+        # Try to authenticate the user
         user = authenticate_user(data['email'], data['password'])
         
         if not user:
             return jsonify({"error": "Invalid email or password"}), 401
         
         # Generate access token
-        access_token = create_access_token(identity=str(user['_id']))
+        try:
+            access_token = create_access_token(identity=str(user['_id']))
+        except Exception as token_err:
+            print(f"Token generation error: {str(token_err)}")
+            return jsonify({"error": "Authentication error. Failed to generate token."}), 500
         
         # Ensure serialized_user is actually a serializable dict
-        serialized_user = serialize_user(user)
+        try:
+            serialized_user = serialize_user(user)
+        except Exception as serialize_err:
+            print(f"User serialization error: {str(serialize_err)}")
+            return jsonify({"error": "Failed to process user data"}), 500
         
-        return jsonify({
+        # Create and return the JSON response
+        response_data = {
             "user": serialized_user,
             "access_token": access_token
-        })
+        }
+        
+        return jsonify(response_data)
     except Exception as e:
         print(f"Login error: {str(e)}")
-        return jsonify({"error": "Login failed: " + str(e)}), 400
+        return jsonify({"error": f"Login failed: {str(e)}"}), 500
 
 @main.route('/auth/me', methods=['GET'])
 @require_auth
@@ -557,4 +599,88 @@ def query_pdf_content():
             "success": False,
             "error": str(e),
             "results": []
-        }) 
+        })
+
+@main.route('/upload-image', methods=['POST'])
+@require_auth
+def upload_image(current_user):
+    """
+    Upload image to MongoDB and return URL
+    Expects binary image data in request body
+    """
+    try:
+        # Check if there's an image in the request
+        if 'image' not in request.files:
+            return jsonify({"error": "No image provided"}), 400
+            
+        image_file = request.files['image']
+        print(f"Received file: {image_file.filename}, type: {image_file.content_type}")
+        
+        # Validate the image file type
+        if not image_file.content_type.startswith('image/'):
+            return jsonify({"error": "Invalid file type. Only images are allowed."}), 400
+            
+        # Read the image content and encode as base64
+        image_content = image_file.read()
+        encoded_image = base64.b64encode(image_content).decode('utf-8')
+        
+        # Create a document to store the image
+        image_doc = {
+            "user_id": current_user["_id"],
+            "filename": image_file.filename,
+            "mime_type": image_file.content_type,
+            "encoding": "base64",
+            "content": encoded_image,
+            "created_at": datetime.utcnow()
+        }
+        
+        # Insert into MongoDB
+        db = get_db()
+        result = db.images.insert_one(image_doc)
+        
+        # Create a URL that can be used to access the image
+        image_id = str(result.inserted_id)
+        image_url = f"/api/images/{image_id}"
+        
+        print(f"Successfully uploaded image with ID: {image_id}")
+        
+        return jsonify({
+            "success": True,
+            "id": image_id,
+            "url": image_url,
+            "filename": image_file.filename
+        })
+        
+    except Exception as e:
+        print(f"Image upload error: {str(e)}")
+        return jsonify({"error": f"Upload failed: {str(e)}"}), 500
+
+@main.route('/images/<image_id>', methods=['GET'])
+def get_image(image_id):
+    """Fetch and serve an image from MongoDB"""
+    try:
+        # Convert string ID to ObjectId
+        try:
+            obj_id = ObjectId(image_id)
+        except:
+            return jsonify({"error": "Invalid image ID"}), 400
+            
+        # Get the image from the database
+        db = get_db()
+        image_doc = db.images.find_one({"_id": obj_id})
+        
+        if not image_doc:
+            return jsonify({"error": "Image not found"}), 404
+            
+        # Decode the base64 image
+        image_data = base64.b64decode(image_doc["content"])
+        
+        # Serve the image with the correct MIME type
+        return Response(
+            image_data, 
+            mimetype=image_doc["mime_type"]
+        )
+        
+    except Exception as e:
+        print(f"Image fetch error: {str(e)}")
+        return jsonify({"error": f"Failed to retrieve image: {str(e)}"}), 500 

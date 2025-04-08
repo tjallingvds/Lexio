@@ -73,6 +73,7 @@ import { TableDropdownMenu } from './table-dropdown-menu';
 import { ToggleToolbarButton } from './toggle-toolbar-button';
 import { ToolbarButton, ToolbarGroup } from './toolbar';
 import { TurnIntoDropdownMenu } from './turn-into-dropdown-menu';
+import { MongoDBImageButton } from './mongodb-image-button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -284,41 +285,6 @@ export function FixedToolbarButtons() {
   const readOnly = useEditorReadOnly();
   const editor = useEditorRef();
 
-  // Function to handle image insertion
-  const handleImageInsert = () => {
-    // Ensure editor is focused before inserting
-    editor.tf.focus();
-    
-    // Create an image picker element
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.multiple = true;
-    
-    // Handle when files are selected
-    input.onchange = async (e) => {
-      const files = (e.target as HTMLInputElement).files;
-      if (files && files.length > 0) {
-        // For each file, create a temporary URL and insert it directly
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          const url = URL.createObjectURL(file);
-          
-          // Insert the image node directly
-          editor.tf.insertNodes({
-            type: 'image',
-            children: [{ text: '' }],
-            url: url,
-            width: 300, // Default width
-          });
-        }
-      }
-    };
-    
-    // Trigger the file selection dialog
-    input.click();
-  };
-
   return (
     <div className="flex w-full flex-wrap gap-0.5">
       {!readOnly && (
@@ -354,9 +320,7 @@ export function FixedToolbarButtons() {
           <ToolbarGroup>
             <FormatDropdownMenu />
             
-            <ToolbarButton tooltip="Image" onClick={handleImageInsert}>
-              <ImageIcon />
-            </ToolbarButton>
+            <MongoDBImageButton />
             
             <TableDropdownMenu />
             

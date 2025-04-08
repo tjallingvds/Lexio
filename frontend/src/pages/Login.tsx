@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { LoginForm } from '@/components/login-form';
 import { toast } from 'sonner';
+import { auth } from '@/lib/api';
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
@@ -11,19 +12,8 @@ export default function Login() {
     setLoading(true);
     
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Login failed');
-      }
+      // Use our API wrapper to handle the login
+      const data = await auth.login(email, password);
       
       // Save authentication data
       localStorage.setItem('token', data.access_token);
@@ -32,6 +22,7 @@ export default function Login() {
       toast.success('Login successful');
       navigate('/home');
     } catch (error) {
+      console.error('Login error:', error);
       toast.error(error instanceof Error ? error.message : 'Login failed');
     } finally {
       setLoading(false);

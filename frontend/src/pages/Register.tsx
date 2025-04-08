@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { auth } from '@/lib/api';
 
 export default function Register() {
   const [loading, setLoading] = useState(false);
@@ -35,23 +36,12 @@ export default function Register() {
     setLoading(true);
     
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
-          password: formData.password,
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Registration failed');
-      }
+      // Use our API wrapper to handle registration
+      const data = await auth.register(
+        formData.name,
+        formData.email,
+        formData.password
+      );
       
       // Save authentication data
       localStorage.setItem('token', data.access_token);
@@ -60,6 +50,7 @@ export default function Register() {
       toast.success('Account created successfully');
       navigate('/home');
     } catch (error) {
+      console.error('Registration error:', error);
       toast.error(error instanceof Error ? error.message : 'Registration failed');
     } finally {
       setLoading(false);

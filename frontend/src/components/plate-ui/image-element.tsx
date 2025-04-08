@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { cn, withRef } from '@udecode/cn';
 import { useDraggable } from '@udecode/plate-dnd';
@@ -16,13 +16,35 @@ import {
   ResizeHandle,
 } from './resizable';
 
+// Get the API base URL from environment or use the default
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+
+// Function to ensure URLs are absolute
+const ensureAbsoluteUrl = (url: string) => {
+  if (url.startsWith('http')) {
+    return url;
+  }
+  
+  if (url.startsWith('/api/')) {
+    return `${API_BASE_URL}${url}`;
+  }
+  
+  return url;
+};
+
 export const ImageElement = withHOC(
   ResizableProvider,
   withRef<typeof PlateElement>(
     ({ children, className, nodeProps, ...props }, ref) => {
       const { align = 'center', focused, readOnly, selected } = useMediaState();
-
       const width = useResizableValue('width');
+      const [imageUrl, setImageUrl] = useState(nodeProps?.url || '');
+      
+      useEffect(() => {
+        if (nodeProps?.url) {
+          setImageUrl(ensureAbsoluteUrl(nodeProps.url));
+        }
+      }, [nodeProps?.url]);
 
       const { isDragging, handleRef } = useDraggable({
         element: props.element,
@@ -56,7 +78,7 @@ export const ImageElement = withHOC(
                     isDragging && 'opacity-50'
                   )}
                   alt=""
-                  {...nodeProps}
+                  {...{...nodeProps, url: imageUrl}}
                 />
                 <ResizeHandle
                   className={mediaResizeHandleVariants({

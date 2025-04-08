@@ -24,7 +24,7 @@ import {
 import { AudioLines, FileUp, Film, ImageIcon } from 'lucide-react';
 import { useFilePicker } from 'use-file-picker';
 
-import { useUploadFile } from '@/lib/uploadthing';
+import { useMongoDBUpload } from '@/lib/mongodb-upload';
 
 import { Spinner } from './spinner';
 
@@ -68,7 +68,7 @@ export const MediaPlaceholderElement = withHOC(
       const { api } = useEditorPlugin(PlaceholderPlugin);
 
       const { isUploading, progress, uploadedFile, uploadFile, uploadingFile } =
-        useUploadFile();
+        useMongoDBUpload();
 
       const loading = isUploading && uploadingFile;
 
@@ -112,7 +112,7 @@ export const MediaPlaceholderElement = withHOC(
             initialHeight: imageRef.current?.height,
             initialWidth: imageRef.current?.width,
             isUpload: true,
-            name: element.mediaType === FilePlugin.key ? uploadedFile.name : '',
+            name: element.mediaType === FilePlugin.key ? uploadedFile.filename : '',
             placeholderId: element.id as string,
             type: element.mediaType!,
             url: uploadedFile.url,

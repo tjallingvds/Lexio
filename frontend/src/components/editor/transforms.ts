@@ -45,6 +45,57 @@ import {
   TablePlugin,
   TableRowPlugin,
 } from '@udecode/plate-table/react';
+import { toast } from 'sonner';
+
+// Create a temporary MongoDBUploader for transforms
+class MongoDBUploader {
+  static async uploadImage(file: File): Promise<string | null> {
+    try {
+      // Create FormData
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      // Get token
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Authentication required. Please log in again.');
+        return null;
+      }
+      
+      // Get API URL from env or use default
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+      
+      // Upload the image
+      const response = await fetch(`${apiUrl}/api/upload-image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        toast.error(errorData.error || 'Failed to upload image');
+        return null;
+      }
+      
+      const data = await response.json();
+      
+      // Ensure the URL is absolute
+      const url = data.url.startsWith('http') 
+        ? data.url 
+        : `${apiUrl}${data.url}`;
+        
+      toast.success('Image uploaded successfully');
+      return url;
+    } catch (error) {
+      console.error('Image upload error:', error);
+      toast.error('Failed to upload image. Please try again.');
+      return null;
+    }
+  }
+}
 
 export const STRUCTURAL_TYPES: string[] = [
   ColumnPlugin.key,
@@ -81,11 +132,83 @@ const insertBlockMap: Record<
   [CodeBlockPlugin.key]: (editor) => insertCodeBlock(editor, { select: true }),
   [EquationPlugin.key]: (editor) => insertEquation(editor, { select: true }),
   [FilePlugin.key]: (editor) => insertFilePlaceholder(editor, { select: true }),
-  [ImagePlugin.key]: (editor) =>
-    insertMedia(editor, {
-      select: true,
-      type: ImagePlugin.key,
-    }),
+  [ImagePlugin.key]: (editor) => {
+    // Create a file picker for images
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = false;
+    
+    // When files are selected
+    input.onchange = async (e) => {
+      const files = (e.target as HTMLInputElement).files;
+      if (!files || files.length === 0) return;
+      
+      // Show loading indicator
+      const loadingToastId = toast.loading('Uploading image...');
+      
+      try {
+        // First create a temporary URL for the placeholder
+        const tempUrl = URL.createObjectURL(files[0]);
+        
+        // Insert the image with the temporary URL
+        editor.tf.insertNodes({
+          type: ImagePlugin.key,
+          children: [{ text: '' }],
+          url: tempUrl,
+        });
+        
+        // Get all nodes of the image type
+        const imageNodes = editor.tf.nodes({
+          match: { type: ImagePlugin.key, url: tempUrl }
+        });
+        
+        // Get the first matching node
+        const imageEntry = Array.from(imageNodes)[0];
+        
+        if (!imageEntry) {
+          toast.dismiss(loadingToastId);
+          toast.error('Failed to create image placeholder');
+          return;
+        }
+        
+        // Upload the file to MongoDB
+        const url = await MongoDBUploader.uploadImage(files[0]);
+        
+        if (url) {
+          // If upload successful, update the node with the proper URL
+          editor.tf.setNodes(
+            { url },
+            { at: imageEntry[1] }
+          );
+          
+          // Revoke the temporary URL to free memory
+          URL.revokeObjectURL(tempUrl);
+          
+          toast.dismiss(loadingToastId);
+          toast.success('Image uploaded successfully');
+        } else {
+          // If upload failed, remove the node
+          editor.tf.removeNodes({
+            at: imageEntry[1]
+          });
+          
+          // Revoke the temporary URL to free memory
+          URL.revokeObjectURL(tempUrl);
+          
+          toast.dismiss(loadingToastId);
+          toast.error('Failed to upload image');
+        }
+      } catch (error) {
+        console.error('Error handling image upload:', error);
+        toast.dismiss(loadingToastId);
+        toast.error('An error occurred while uploading the image');
+      }
+    };
+    
+    // Trigger the file picker
+    input.click();
+  },
   [MediaEmbedPlugin.key]: (editor) =>
     insertMedia(editor, {
       select: true,

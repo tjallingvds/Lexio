@@ -51,27 +51,41 @@ interface SettingsContextType {
   setModel: (model: Model) => void;
 }
 
-export const models: Model[] = [
-  { label: 'gpt-4o-mini', value: 'gpt-4o-mini' },
-  { label: 'gpt-4o', value: 'gpt-4o' },
-  { label: 'gpt-4-turbo', value: 'gpt-4-turbo' },
-  { label: 'gpt-4', value: 'gpt-4' },
-  { label: 'gpt-3.5-turbo', value: 'gpt-3.5-turbo' },
-  { label: 'gpt-3.5-turbo-instruct', value: 'gpt-3.5-turbo-instruct' },
+const models: Model[] = [
+  {
+    label: 'GPT-3.5 Turbo',
+    value: 'gpt-3.5-turbo',
+  },
+  {
+    label: 'GPT-4 Turbo',
+    value: 'gpt-4-turbo-preview',
+  },
+  {
+    label: 'GPT-4o',
+    value: 'gpt-4o',
+  },
+  {
+    label: 'Claude 3 Opus',
+    value: 'claude-3-opus-20240229',
+  },
+  {
+    label: 'Claude 3 Sonnet',
+    value: 'claude-3-sonnet-20240229',
+  },
+  {
+    label: 'Claude 3 Haiku',
+    value: 'claude-3-haiku-20240307',
+  },
 ];
 
-const SettingsContext = createContext<SettingsContextType | undefined>(
-  undefined
-);
+const SettingsContext = createContext<SettingsContextType | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
   const [keys, setKeys] = useState<Record<string, string>>(() => {
-    // Initialize from local storage
     const storedKeys = typeof window !== 'undefined' ? localStorage.getItem('api-keys') : null;
     
     // Get environment variables
     const envOpenAI = import.meta.env.VITE_OPENAI_API_KEY as string;
-    const envUploadthing = import.meta.env.VITE_UPLOADTHING_API_KEY as string;
     
     console.log('Environment OpenAI API key available:', !!envOpenAI);
     
@@ -80,14 +94,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const parsed = JSON.parse(storedKeys);
       return {
         openai: parsed.openai || envOpenAI || '',
-        uploadthing: parsed.uploadthing || envUploadthing || '',
       };
     }
     
     // If no local storage, use environment variables
     return {
       openai: envOpenAI || '',
-      uploadthing: envUploadthing || '',
     };
   });
   const [model, setModel] = useState<Model>(models[1]);
@@ -117,7 +129,6 @@ export function useSettings() {
     context ?? {
       keys: {
         openai: '',
-        uploadthing: '',
       },
       model: models[0],
       setKey: () => {},
@@ -175,11 +186,7 @@ export function SettingsDialog() {
         >
           <a
             className="flex items-center"
-            href={
-              service === 'openai'
-                ? 'https://platform.openai.com/api-keys'
-                : 'https://uploadthing.com/dashboard'
-            }
+            href="https://platform.openai.com/api-keys"
             rel="noopener noreferrer"
             target="_blank"
           >
@@ -266,84 +273,13 @@ export function SettingsDialog() {
 
             <div className="space-y-4">
               {renderApiKeyInput('openai', 'OpenAI API key')}
-
-              <div className="group relative">
-                <label
-                  className="absolute start-1 top-0 z-10 block -translate-y-1/2 bg-background px-2 text-xs font-medium text-foreground group-has-disabled:opacity-50"
-                  htmlFor="select-model"
-                >
-                  Model
-                </label>
-                <Popover open={openModel} onOpenChange={setOpenModel}>
-                  <PopoverTrigger id="select-model" asChild>
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      className="w-full justify-between"
-                      aria-expanded={openModel}
-                      role="combobox"
-                    >
-                      <code>{model.label}</code>
-                      <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-full p-0">
-                    <Command>
-                      <CommandInput placeholder="Search model..." />
-                      <CommandEmpty>No model found.</CommandEmpty>
-                      <CommandList>
-                        <CommandGroup>
-                          {models.map((m) => (
-                            <CommandItem
-                              key={m.value}
-                              value={m.value}
-                              onSelect={() => {
-                                setModel(m);
-                                setOpenModel(false);
-                              }}
-                            >
-                              <Check
-                                className={cn(
-                                  'mr-2 size-4',
-                                  model.value === m.value
-                                    ? 'opacity-100'
-                                    : 'opacity-0'
-                                )}
-                              />
-                              <code>{m.label}</code>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
             </div>
           </div>
 
-          {/* Upload Settings Group */}
-          {/* <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <div className="size-8 rounded-full bg-red-100 p-2 dark:bg-red-900">
-                <Upload className="size-4 text-red-600 dark:text-red-400" />
-              </div>
-              <h4 className="font-semibold">Upload</h4>
-            </div>
-
-            <div className="space-y-4">
-              {renderApiKeyInput('uploadthing', 'Uploadthing API key')}
-            </div>
-          </div> */}
-
-          <Button size="lg" className="w-full" type="submit">
-            Save changes
-          </Button>
+          <div className="flex justify-end">
+            <Button type="submit">Save Changes</Button>
+          </div>
         </form>
-
-        <p className="text-sm text-muted-foreground">
-          Not stored anywhere. Used only for current session requests.
-        </p>
       </DialogContent>
     </Dialog>
   );

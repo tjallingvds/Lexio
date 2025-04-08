@@ -24,7 +24,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Avatar } from '@/components/ui/avatar';
 import { useSettings } from '@/components/editor/settings';
-import { useUploadFile } from '@/lib/uploadthing';
+import { useMongoDBUpload } from '@/lib/mongodb-upload';
 import { toast } from 'sonner';
 import { 
   Popover,
@@ -192,8 +192,8 @@ export function AiChat() {
   const [isSearching, setIsSearching] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
   
-  // Use uploadThing for handling file uploads
-  const { isUploading } = useUploadFile({
+  // Use MongoDB upload for handling file uploads
+  const { isUploading } = useMongoDBUpload({
     onUploadComplete: (file) => {
       console.log('File uploaded successfully:', file);
     },
