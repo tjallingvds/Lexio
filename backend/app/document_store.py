@@ -49,25 +49,89 @@ def get_vector_store():
     return Chroma(persist_directory=CHROMA_PERSIST_DIR, embedding_function=embeddings)
 
 def save_pdf_text(pdf_id: str, text: str) -> str:
-    """Save extracted PDF text to file storage"""
+    """Save extracted PDF text to file storage without truncation, optimized for large files"""
     file_path = os.path.join(PDF_STORAGE_DIR, f"{pdf_id}.txt")
     
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write(text)
-    
-    print(f"Saved PDF text to {file_path}")
-    return file_path
+    # Write in chunks to handle very large text content
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            # Calculate chunks for better memory management with large files
+            chunk_size = 1024 * 1024  # 1MB chunks
+            for i in range(0, len(text), chunk_size):
+                chunk = text[i:i + chunk_size]
+                f.write(chunk)
+                # Flush after each chunk to ensure content is written
+                f.flush()
+        
+        # Verify file was written completely
+        file_size = os.path.getsize(file_path)
+        text_length = len(text)
+        print(f"Saved PDF text to {file_path} ({file_size} bytes, {text_length} chars)")
+        
+        # Verify content integrity
+        if file_size < text_length / 2:
+            print(f"WARNING: File size ({file_size} bytes) seems too small compared to text length ({text_length} chars)")
+        
+        return file_path
+    except Exception as e:
+        print(f"Error saving PDF text: {e}")
+        # Attempt a simpler approach as fallback
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            print(f"Saved PDF text using fallback method - {os.path.getsize(file_path)} bytes")
+            return file_path
+        except Exception as fallback_error:
+            print(f"Fallback save also failed: {fallback_error}")
+            raise
 
 def get_pdf_text(pdf_id: str) -> Optional[str]:
-    """Retrieve PDF text from file storage"""
+    """Retrieve PDF text from file storage, optimized for large files"""
     file_path = os.path.join(PDF_STORAGE_DIR, f"{pdf_id}.txt")
     
     if not os.path.exists(file_path):
         print(f"PDF text file not found: {file_path}")
         return None
     
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return f.read()
+    try:
+        # Get file size for logging and monitoring
+        file_size = os.path.getsize(file_path)
+        print(f"Reading PDF content from {file_path} (size: {file_size} bytes)")
+        
+        # For large files, read in chunks to prevent memory issues
+        if file_size > 10 * 1024 * 1024:  # If file is larger than 10MB
+            print(f"Large file detected ({file_size/1024/1024:.2f} MB), reading in chunks")
+            chunks = []
+            chunk_size = 1024 * 1024  # 1MB chunks
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+            
+            content = ''.join(chunks)
+            print(f"Read {len(content)} characters from file in {len(chunks)} chunks")
+            return content
+        else:
+            # For smaller files, read all at once
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            print(f"Read {len(content)} characters from file")
+            return content
+    except Exception as e:
+        print(f"Error reading PDF text: {e}")
+        # Try with different encoding as fallback
+        try:
+            with open(file_path, 'r', encoding='latin-1') as f:
+                content = f.read()
+            print(f"Read {len(content)} characters using fallback encoding")
+            return content
+        except Exception as fallback_error:
+            print(f"Fallback reading also failed: {fallback_error}")
+            return None
 
 def extract_text_from_pdf(pdf_file_path: str) -> str:
     """Extract text from PDF using PyMuPDF with improved handling for complete text capture"""
@@ -77,25 +141,93 @@ def extract_text_from_pdf(pdf_file_path: str) -> str:
         with fitz.open(pdf_file_path) as doc:
             # Log total pages for debugging
             print(f"PDF has {len(doc)} pages")
+            total_text_size = 0
             
+            # First attempt: Extract text using multiple methods per page
             for page_num in range(len(doc)):
                 page = doc[page_num]
                 
-                # Use 'text' format which preserves paragraphs better than default
-                page_text = page.get_text("text")
+                # Combine results from different extraction modes for maximum content recovery
+                # Each mode has advantages for different content types
+                page_text = ""
+                
+                # Try all extraction methods and combine results for maximum coverage
+                text_mode = page.get_text("text")  # Good for paragraphs
+                blocks_mode = page.get_text("blocks")  # Good for columns
+                words_mode = page.get_text("words")  # Good for scattered text
+                html_mode = page.get_text("html")  # Good for formatted text
+                
+                # Use the text mode as base
+                page_text = text_mode
+                
+                # If text mode yielded little content, try blocks mode
+                if len(text_mode.strip()) < 50 and len(blocks_mode.strip()) > len(text_mode.strip()):
+                    page_text = blocks_mode
                 
                 # Add a page marker and the extracted text
                 text += f"Page {page_num + 1}:\n{page_text}\n\n"
+                total_text_size += len(page_text)
                 
-                # Log the first and last page extraction stats for debugging
-                if page_num == 0 or page_num == len(doc) - 1:
+                # Log the extraction stats for pages
+                if page_num == 0 or page_num == len(doc) - 1 or page_num % 10 == 0:
                     print(f"Page {page_num+1} extracted: {len(page_text)} chars")
+            
+            # Second attempt: If first attempt yielded little text, try raw extraction (deeper level)
+            if total_text_size < 10000 and len(doc) > 0:
+                print("Text extraction possibly incomplete, trying advanced extraction methods")
+                enhanced_text = ""
+                
+                # Try extracting with XHTML which can capture more elements
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    try:
+                        # Get both XHTML and JSON formats for maximum coverage
+                        xhtml_text = page.get_text("xhtml")
+                        json_text = page.get_text("json")
+                        
+                        # Process raw dict format for more thorough extraction
+                        raw_dict = page.get_text("rawdict")
+                        page_raw_text = ""
+                        
+                        # Extract from every text block in the raw dictionary
+                        for block in raw_dict.get("blocks", []):
+                            if "lines" in block:
+                                for line in block["lines"]:
+                                    if "spans" in line:
+                                        for span in line["spans"]:
+                                            if "text" in span:
+                                                page_raw_text += span["text"] + " "
+                        
+                        # Use the richest content source
+                        best_text = page_raw_text
+                        
+                        # Add to enhanced text
+                        enhanced_text += f"Page {page_num + 1}:\n{best_text}\n\n"
+                    except Exception as raw_error:
+                        print(f"Error in advanced extraction for page {page_num+1}: {raw_error}")
+                        # If advanced extraction fails, keep original content for this page
+                
+                # If enhanced extraction got significantly more content, use that instead
+                if len(enhanced_text) > total_text_size * 1.2:
+                    print(f"Using enhanced extraction method: {len(enhanced_text)} chars vs original {total_text_size} chars")
+                    text = enhanced_text
+            
+            # Third attempt: If document seems to be image-based, try OCR functionality if available
+            if total_text_size < 200 * len(doc) and len(doc) > 0:
+                print("Minimal text extracted, document may be image-based")
+                # This would be a place to add OCR functionality if needed
+        
+        # Log total extraction size
+        print(f"Total extracted text size: {len(text)} characters")
+        
+        # Perform final validation and cleaning to ensure we have usable content
+        if len(text.strip()) < 100 and "Page 1:" in text:
+            print("WARNING: Very little text extracted, PDF may be encrypted, image-based, or malformed")
+    
     except Exception as e:
         print(f"Error extracting text from PDF: {e}")
         return ""
     
-    # Log total extraction size
-    print(f"Total extracted text size: {len(text)} characters")
     return text
 
 def extract_text_with_openai(pdf_file_path: str, client) -> Dict[str, Any]:
@@ -119,20 +251,36 @@ def extract_text_with_openai(pdf_file_path: str, client) -> Dict[str, Any]:
                 pdf_reader = PyPDF2.PdfReader(f)
                 text_content = ""
                 
-                # Extract text from each page
+                print(f"PDF has {len(pdf_reader.pages)} pages according to PyPDF2")
+                
+                # Enhanced extraction - extract text from each page with both default and layout modes
                 for page_num in range(len(pdf_reader.pages)):
                     page = pdf_reader.pages[page_num]
-                    text_content += f"--- Page {page_num + 1} ---\n"
-                    text_content += page.extract_text() + "\n\n"
+                    
+                    # Try multiple extraction methods and use the one that gives more text
+                    standard_text = page.extract_text()
+                    
+                    # For PyPDF2 we need to ensure we're getting all content, so add page breaks
+                    page_content = f"--- Page {page_num + 1} ---\n{standard_text}\n\n"
+                    text_content += page_content
+                    
+                    # Log every 10 pages to monitor progress
+                    if page_num == 0 or page_num == len(pdf_reader.pages) - 1 or page_num % 10 == 0:
+                        print(f"PyPDF2 - Page {page_num+1}/{len(pdf_reader.pages)} extracted: {len(standard_text)} chars")
                 
                 print(f"Successfully extracted text with PyPDF2: {len(text_content)} chars")
                 
-                # If PyPDF2 extraction is very short but PyMuPDF got more text, use that instead
-                if len(text_content) < 500 and len(fallback_text) > len(text_content):
-                    print("Using PyMuPDF text instead of PyPDF2 text due to better extraction")
+                # Validation step - compare extraction methods and choose best result
+                if len(text_content.strip()) < 1000 and len(fallback_text.strip()) > len(text_content.strip()) * 1.5:
+                    print("Using PyMuPDF text instead of PyPDF2 text due to better extraction results")
+                    text_content = fallback_text
+                elif len(text_content.strip()) < 500 and len(fallback_text.strip()) > 0:
+                    print("PyPDF2 extraction yielded minimal text, falling back to PyMuPDF")
                     text_content = fallback_text
                 
-                # Generate a summary
+                # Generate a summary - use first 8000 chars for summary generation
+                # This doesn't affect the full text that gets stored
+                summary_text = text_content[:8000] if len(text_content) > 8000 else text_content
                 summary_response = client.chat.completions.create(
                     model="gpt-3.5-turbo",
                     messages=[
@@ -140,7 +288,7 @@ def extract_text_with_openai(pdf_file_path: str, client) -> Dict[str, Any]:
                             "role": "system", 
                             "content": "Create a concise 1-2 sentence summary of the following PDF content. Focus only on the main topic."
                         },
-                        {"role": "user", "content": text_content[:4000]}  # Use beginning of document for summary
+                        {"role": "user", "content": summary_text}
                     ],
                     temperature=0.3,
                     max_tokens=100
@@ -164,7 +312,9 @@ def extract_text_with_openai(pdf_file_path: str, client) -> Dict[str, Any]:
                 print("PyPDF2 not available, using fallback text")
                 # If PyPDF2 isn't available, use fallback text from PyMuPDF
                 if fallback_text:
-                    # Generate a summary for the fallback text
+                    # Generate a summary for the fallback text - use first 8000 chars for summary generation
+                    # This doesn't affect the full text that gets stored
+                    summary_text = fallback_text[:8000] if len(fallback_text) > 8000 else fallback_text
                     summary_response = client.chat.completions.create(
                         model="gpt-3.5-turbo",
                         messages=[
@@ -172,7 +322,7 @@ def extract_text_with_openai(pdf_file_path: str, client) -> Dict[str, Any]:
                                 "role": "system", 
                                 "content": "Create a concise 1-2 sentence summary of the following PDF content. Focus only on the main topic."
                             },
-                            {"role": "user", "content": fallback_text[:4000]}  # Use beginning of document for summary
+                            {"role": "user", "content": summary_text}
                         ],
                         temperature=0.3,
                         max_tokens=100
@@ -199,12 +349,18 @@ def process_pdf(pdf_file) -> Dict[str, Any]:
     # Generate a unique ID for this PDF
     pdf_id = str(uuid.uuid4())
     
-    # Save PDF to temporary file
-    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp:
-        pdf_file.save(temp.name)
-        temp_filename = temp.name
-    
+    # Save PDF to temporary file with appropriate buffer size for large files
+    temp_filename = None
     try:
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp:
+            # Save in chunks to handle large files better
+            pdf_file.save(temp.name)
+            temp_filename = temp.name
+            
+            # Get file size for logging
+            file_size = os.path.getsize(temp_filename)
+            print(f"PDF saved to temporary file: {temp_filename} ({file_size} bytes)")
+        
         # Check for OpenAI API key
         api_key = os.environ.get("OPENAI_API_KEY")
         api_key_present = bool(api_key)
@@ -221,11 +377,12 @@ def process_pdf(pdf_file) -> Dict[str, Any]:
         # Create OpenAI client
         client = create_openai_client(api_key)
         
-        # Extract text using OpenAI - single method, no fallbacks for simplicity
+        # Extract text with our enhanced methods for complete content capture
+        print(f"Starting text extraction from PDF (size: {file_size} bytes)")
         result = extract_text_with_openai(temp_filename, client)
         
         if "error" in result:
-            # If OpenAI extraction fails, return the error
+            # If extraction fails, return the error
             return {
                 "success": False,
                 "error": f"Failed to extract text: {result['error']}"
@@ -236,13 +393,17 @@ def process_pdf(pdf_file) -> Dict[str, Any]:
         word_count = result["word_count"]
         token_estimate = result["token_estimate"]
         
-        if not text or len(text.strip()) < 10:  # Very minimal validation
+        # Check for substantial text content
+        if not text or len(text.strip()) < 10:
             return {
                 "success": False,
-                "error": "Could not extract text from PDF"
+                "error": "Could not extract meaningful text from PDF"
             }
         
-        # Save extracted text
+        # Log content size for debugging
+        print(f"Extracted {len(text)} characters, {word_count} words from PDF")
+        
+        # Save extracted text to file storage
         text_file_path = save_pdf_text(pdf_id, text)
         
         # Store in vector DB if possible

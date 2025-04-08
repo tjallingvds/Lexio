@@ -546,6 +546,10 @@ def get_pdf_content(pdf_id):
     print(f"Retrieving content for PDF ID: {pdf_id}")
     
     try:
+        # Check if the request wants a specific page or range instead of full content
+        page_start = request.args.get('page_start', type=int)
+        page_end = request.args.get('page_end', type=int)
+        
         text = get_pdf_text(pdf_id)
         
         if not text:
@@ -554,9 +558,35 @@ def get_pdf_content(pdf_id):
         
         # Log content size for debugging
         content_size = len(text)
-        print(f"Returning PDF content: {content_size} characters")
+        print(f"Retrieved PDF content: {content_size} characters")
+        
+        # Handle page-based retrieval if requested (for extremely large PDFs)
+        if page_start is not None:
+            pages = text.split('Page ')
+            requested_pages = []
+            
+            # Pages are 1-indexed in the text
+            end_page = page_end or len(pages)
+            
+            # Add requested pages
+            for i in range(max(1, page_start), min(end_page + 1, len(pages))):
+                if i < len(pages):
+                    requested_pages.append(f"Page {pages[i]}")
+            
+            if requested_pages:
+                partial_text = "\n".join(requested_pages)
+                print(f"Returning partial content (pages {page_start}-{end_page}): {len(partial_text)} characters")
+                return jsonify({
+                    "success": True,
+                    "text": partial_text,
+                    "size": len(partial_text),
+                    "total_size": content_size,
+                    "is_partial": True,
+                    "total_pages": len(pages) - 1  # Adjust for split behavior
+                })
         
         # Return complete content without truncation
+        print(f"Returning full PDF content: {content_size} characters")
         return jsonify({
             "success": True,
             "text": text,

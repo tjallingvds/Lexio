@@ -82,11 +82,7 @@ export function sanitizePdfContent(text: string): string {
     .replace(/\s{2,}/g, ' ')
     .trim();
   
-  // Ensure reasonable length
-  if (cleaned.length > 500000) {
-    cleaned = cleaned.slice(0, 500000) + '\n\n[Content truncated due to size]';
-  }
-  
+  // No longer truncating the content
   return cleaned;
 }
 

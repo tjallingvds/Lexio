@@ -155,12 +155,12 @@ export function PdfLibrary({ onSelect }: PdfLibraryProps) {
 
   return (
     <div className="flex flex-col h-full bg-background text-foreground">
-      <div className="flex items-center gap-2 px-4 h-[41px] border-b bg-white">
+      <div className="flex items-center gap-2 h-[41px] px-4 bg-white">
         <div className="relative flex-1">
-          <SearchIcon className="h-4 w-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search PDFs..."
-            className="h-8 pl-8 py-1"
+            className="h-8 pl-9 rounded-md"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -173,7 +173,7 @@ export function PdfLibrary({ onSelect }: PdfLibraryProps) {
                 size="icon"
                 variant="ghost"
                 onClick={() => fileInputRef.current?.click()}
-                className="h-8 w-8"
+                className="h-7 w-7"
               >
                 <FileUp className="h-4 w-4" />
               </Button>

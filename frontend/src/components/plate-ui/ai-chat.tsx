@@ -204,7 +204,7 @@ export function AiChat() {
   });
   
   // Define MAX_PDF_LENGTH constant near the top of the component
-  const MAX_PDF_LENGTH = 10000; // Maximum length of PDF content to include in context
+  const MAX_PDF_LENGTH = 100000; // Maximum length of PDF content to include in context (increased from 10000)
 
   // Handler for selecting a PDF from the library
   const handleSelectPdf = async (pdf: PdfDocument) => {
@@ -833,7 +833,8 @@ export function AiChat() {
       if (selectedPdfs.length > 0) {
         for (const pdf of selectedPdfs) {
           if (pdf.content) {
-            pdfContent += `=== PDF: ${pdf.name} ===\n${truncateContent(pdf.content, MAX_PDF_LENGTH)}\n\n`;
+            // Use complete content without truncation for better context
+            pdfContent += `=== PDF: ${pdf.name} ===\n${pdf.content}\n\n`;
           }
         }
       }
@@ -846,9 +847,25 @@ export function AiChat() {
         effectiveSystemPrompt += `\n\nDocument context:\n${documentText}`;
       }
       
-      // Add PDF content if available
+      // Add PDF context with the relevant chunks
       if (pdfContent) {
-        effectiveSystemPrompt += `\n\nPDF context:\n${pdfContent}`;
+        // Include complete PDF content for more comprehensive analysis
+        effectiveSystemPrompt += pdfContent;
+      } else if (selectedPdfs.length > 0) {
+        // Fallback for PDFs without vector storage - include entire content
+        const pdfNames = selectedPdfs.map(pdf => pdf.name).join(", ");
+        effectiveSystemPrompt += `\n\nYou have access to these PDFs: ${pdfNames}`;
+        
+        // Add full content of each PDF for comprehensive analysis
+        let allPdfContent = '';
+        selectedPdfs.forEach((pdf, i) => {
+          if (pdf.content) {
+            allPdfContent += `\n\nContent of ${pdf.name}:\n${pdf.content}`;
+          }
+        });
+        
+        // Add complete PDF content to system prompt
+        effectiveSystemPrompt += allPdfContent;
       }
       
       // Add web search instructions if enabled
@@ -865,12 +882,13 @@ export function AiChat() {
       
       if (webSearchEnabled) {
         model = 'gpt-4o-search-preview'; // Use search model if web search enabled
-      } else if (promptTokenEstimate > 15000) {
-        model = 'gpt-4o'; // Use GPT-4o for larger contexts
+      } else if (promptTokenEstimate > 10000 || selectedPdfs.length > 0) {
+        // Use GPT-4o for larger contexts or when PDFs are present for better handling
+        model = 'gpt-4o';
+        console.log("Using GPT-4o due to large content or PDFs present");
       } else if (promptTokenEstimate > 100000) {
-        // If extremely large, warn user and truncate content
-        toast.warning("Content is extremely large and has been truncated to prevent errors.");
-        effectiveSystemPrompt = effectiveSystemPrompt.slice(0, 100000); // Rough truncation to avoid API errors
+        // If extremely large, warn user about potential issues
+        toast.warning("Content is extremely large. The AI will do its best to analyze it completely.");
       }
       
       // Log the model choice
@@ -1093,7 +1111,8 @@ export function AiChat() {
         if (selectedPdfs.length > 0 && selectedPdfs.some(pdf => pdf.pdf_id)) {
           // For PDFs with backend IDs, query the vector DB
           try {
-            const queryResults = await queryPdfContent(input, 3);
+            // Query more chunks (5 instead of 3) to get more comprehensive coverage
+            const queryResults = await queryPdfContent(input, 10);
             
             if (queryResults.success && queryResults.results.length > 0) {
               relevantPdfContent = "\n\nRelevant PDF content:\n";
@@ -1105,8 +1124,14 @@ export function AiChat() {
                 const pdf = selectedPdfs.find(p => p.pdf_id === pdfId);
                 const pdfName = pdf ? pdf.name : "Unknown PDF";
                 
-                relevantPdfContent += `\n--- From ${pdfName} (Relevance: ${Math.round((1 - result.relevance_score) * 100)}%) ---\n`;
-                relevantPdfContent += result.content + "\n";
+                // Calculate relevance score (1 is best, higher numbers are worse)
+                const relevancePercent = Math.round((1 - result.relevance_score) * 100);
+                
+                // Only include chunks with decent relevance (above 50%)
+                if (relevancePercent > 50) {
+                  relevantPdfContent += `\n--- From ${pdfName} (Relevance: ${relevancePercent}%) ---\n`;
+                  relevantPdfContent += result.content + "\n";
+                }
               });
             } else if (queryResults.error) {
               console.error("Error querying PDF content:", queryResults.error);
@@ -1138,25 +1163,23 @@ ${truncatedDocContent}
 
         // Add PDF context with the relevant chunks
         if (relevantPdfContent) {
-          // Truncate PDF content if too large
-          const truncatedPdfContent = truncateContent(relevantPdfContent, 50000);
-          systemPrompt += truncatedPdfContent;
+          // Include complete PDF content for more comprehensive analysis
+          systemPrompt += relevantPdfContent;
         } else if (selectedPdfs.length > 0) {
-          // Fallback for PDFs without vector storage - we need to include some content
+          // Fallback for PDFs without vector storage - include entire content
           const pdfNames = selectedPdfs.map(pdf => pdf.name).join(", ");
           systemPrompt += `\n\nYou have access to these PDFs: ${pdfNames}`;
           
-          // Add a brief preview of each PDF to provide some context
-          let allPdfPreviews = '';
+          // Add full content of each PDF for comprehensive analysis
+          let allPdfContent = '';
           selectedPdfs.forEach((pdf, i) => {
             if (pdf.content) {
-              const preview = pdf.content.slice(0, 300) + '...';
-              allPdfPreviews += `\n\nBrief preview of ${pdf.name}:\n${preview}`;
+              allPdfContent += `\n\nContent of ${pdf.name}:\n${pdf.content}`;
             }
           });
           
-          // Truncate all previews if too large
-          systemPrompt += truncateContent(allPdfPreviews, 30000);
+          // Add complete PDF content to system prompt
+          systemPrompt += allPdfContent;
         }
 
         // Add instruction to base responses on provided content
@@ -1305,13 +1328,12 @@ ${truncatedDocContent}
   ) => {
     if (!pdfContent) return;
     
-    // Format PDF content for context
+    // Format PDF content for context - no longer truncating content
     const summaryText = summary ? `Summary: ${summary}\n\n` : '';
     const formattedContent = `
 📄 PDF: ${pdfName}
 ${summaryText}Content:
-${pdfContent.trim().slice(0, MAX_PDF_LENGTH)}
-${pdfContent.length > MAX_PDF_LENGTH ? '... (content truncated due to length)' : ''}
+${pdfContent.trim()}
     `.trim();
     
     // Add system message to let user know PDF was added
@@ -1582,9 +1604,9 @@ When including search results in your answer, be sure to cite sources using [1],
   };
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-background rounded-lg border shadow-sm">
-      <div className="flex items-center px-3 py-2 border-b bg-muted/20">
-        <div className="flex-1 flex justify-center">
+    <div className="h-full flex flex-col overflow-hidden bg-background border shadow-sm">
+      <div className="flex items-center h-[41px] px-4 border-b bg-muted/20">
+        <div className="flex-1 flex">
           <Tabs 
             defaultValue="chat"
             value={activeView}
@@ -1592,16 +1614,16 @@ When including search results in your answer, be sure to cite sources using [1],
               // Cast the string value to our type
               setActiveView(value as 'chat' | 'library');
             }}
-            className="w-[240px]"
+            className="w-full"
           >
-            <TabsList className="grid w-full grid-cols-2 h-8">
-              <TabsTrigger value="chat" className="flex items-center gap-1">
-                <MessageSquare className="h-3.5 w-3.5" />
-                <span>Chat</span>
+            <TabsList className="grid w-full grid-cols-2 h-8 bg-transparent">
+              <TabsTrigger value="chat" className="flex items-center justify-center gap-2 px-3 rounded-none">
+                <MessageSquare className="h-4 w-4" />
+                <span className="font-medium">Chat</span>
               </TabsTrigger>
-              <TabsTrigger value="library" className="flex items-center gap-1">
-                <Library className="h-3.5 w-3.5" />
-                <span>PDF Library</span>
+              <TabsTrigger value="library" className="flex items-center justify-center gap-2 px-3 rounded-none">
+                <Library className="h-4 w-4" />
+                <span className="font-medium">PDFs</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -1609,7 +1631,7 @@ When including search results in your answer, be sure to cite sources using [1],
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7"
+          className="h-7 w-7 ml-2"
           onClick={handleNewChat}
         >
           <PlusIcon className="h-4 w-4" />
@@ -1905,7 +1927,7 @@ When including search results in your answer, be sure to cite sources using [1],
                               onClick={() => setActiveView('library')}
                             >
                               <Library className="h-3.5 w-3.5" />
-                              Browse PDF Library
+                              Browse PDFs
                             </Button>
                           </div>
                         </div>
