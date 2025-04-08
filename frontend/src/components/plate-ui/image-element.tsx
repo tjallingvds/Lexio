@@ -19,7 +19,7 @@ import {
 // Get the API base URL from environment or use the default
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
-// Function to ensure URLs are absolute
+// Function to ensure URLs are absolutes
 const ensureAbsoluteUrl = (url: string) => {
   if (url.startsWith('http')) {
     return url;
