@@ -12,6 +12,8 @@ from .auth import authenticate_user, hash_password, require_auth, create_access_
 from .document_store import process_pdf, get_pdf_text, query_similar_content
 from .utils import create_openai_client
 import dotenv
+import threading
+import concurrent.futures
 
 # Make sure to load environment variables
 dotenv.load_dotenv()
@@ -429,29 +431,72 @@ def extract_pdf_text():
         # Check if it's a PDF
         if not pdf_file.filename.lower().endswith('.pdf'):
             return jsonify({"error": "File must be a PDF"}), 400
-            
-        # Process PDF with LangChain integration
-        result = process_pdf(pdf_file)
         
+        # Check for API key first - fail fast if missing
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return jsonify({
+                "error": "OpenAI API key is required for PDF processing. Please add your API key in Settings."
+            }), 400
+        
+        print(f"Processing PDF: {pdf_file.filename}")
+        
+        # Process PDF with a longer timeout (3 minutes)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Submit the processing task with a timeout
+            future = executor.submit(process_pdf, pdf_file)
+            try:
+                # Wait for the result with a generous timeout (180 seconds)
+                result = future.result(timeout=180)
+            except concurrent.futures.TimeoutError:
+                return jsonify({
+                    "error": "PDF processing timed out after 3 minutes. Please try a smaller file or contact support."
+                }), 408  # Request Timeout
+            
         if not result["success"]:
-            return jsonify({"error": result["error"]}), 400
+            # Provide more helpful error details
+            error_msg = result["error"]
+            print(f"PDF processing failed: {error_msg}")
+            
+            # Give more helpful error message for OpenAI API errors
+            if "API" in error_msg or "openai" in error_msg.lower():
+                return jsonify({
+                    "error": "OpenAI API error. This may be due to API key issues or rate limits. Please check your settings or try again later."
+                }), 400
+                
+            return jsonify({"error": error_msg}), 400
             
         # Return text and metadata
-        return jsonify({
+        response_data = {
             "success": True,
             "pdf_id": result["pdf_id"],
             "text": result["text"],
+            "summary": result.get("summary", ""),
             "chunks": result["chunks"],
-            "token_estimate": result.get("token_estimate", 0),  # Use the more accurate estimate from document_store
+            "token_estimate": result.get("token_estimate", 0),
             "word_count": result.get("word_count", 0),
             "file_path": result["file_path"],
             "vector_storage": result.get("vector_storage", False),
             "api_key_present": result.get("api_key_present", False)
-        })
+        }
+        
+        # Log successful extraction
+        print(f"Successfully extracted PDF: {pdf_file.filename}, {result.get('word_count', 0)} words")
+        
+        return jsonify(response_data)
         
     except Exception as e:
         print(f"Error in PDF extraction: {e}")
-        return jsonify({"error": str(e)}), 500
+        # Provide a more helpful error message
+        error_message = str(e)
+        if "OpenAI API" in error_message:
+            return jsonify({"error": "OpenAI API error. Please check your API key and account status."}), 500
+        elif "PDF" in error_message and "file" in error_message:
+            return jsonify({"error": "The PDF file appears to be corrupted or in an unsupported format."}), 400
+        elif "memory" in error_message.lower():
+            return jsonify({"error": "The PDF is too large to process. Please try a smaller file."}), 413
+        
+        return jsonify({"error": f"PDF extraction failed: {error_message}"}), 500
 
 @main.route('/pdf-content/<pdf_id>', methods=['GET'])
 def get_pdf_content(pdf_id):

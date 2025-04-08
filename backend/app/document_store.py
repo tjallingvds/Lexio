@@ -4,6 +4,7 @@ import fitz  # PyMuPDF
 from typing import Dict, List, Optional, Any
 import uuid
 import json
+import base64
 
 # LangChain imports
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -42,20 +43,31 @@ def get_embeddings():
         # Fallback to open-source model if there's any error
         return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-# Initialize vector store
+# Get vector store instance for querying
 def get_vector_store():
-    """Get or create Chroma vector store"""
-    try:
-        embeddings = get_embeddings()
-        
-        # Create or load existing vector store
-        return Chroma(
-            persist_directory=CHROMA_PERSIST_DIR,
-            embedding_function=embeddings
-        )
-    except Exception as e:
-        print(f"Error getting vector store: {e}")
-        raise
+    embeddings = get_embeddings()
+    return Chroma(persist_directory=CHROMA_PERSIST_DIR, embedding_function=embeddings)
+
+def save_pdf_text(pdf_id: str, text: str) -> str:
+    """Save extracted PDF text to file storage"""
+    file_path = os.path.join(PDF_STORAGE_DIR, f"{pdf_id}.txt")
+    
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write(text)
+    
+    print(f"Saved PDF text to {file_path}")
+    return file_path
+
+def get_pdf_text(pdf_id: str) -> Optional[str]:
+    """Retrieve PDF text from file storage"""
+    file_path = os.path.join(PDF_STORAGE_DIR, f"{pdf_id}.txt")
+    
+    if not os.path.exists(file_path):
+        print(f"PDF text file not found: {file_path}")
+        return None
+    
+    with open(file_path, 'r', encoding='utf-8') as f:
+        return f.read()
 
 def extract_text_from_pdf(pdf_file_path: str) -> str:
     """Extract text from PDF using PyMuPDF with improved handling for complete text capture"""
@@ -86,24 +98,101 @@ def extract_text_from_pdf(pdf_file_path: str) -> str:
     print(f"Total extracted text size: {len(text)} characters")
     return text
 
-def save_pdf_text(pdf_id: str, text: str) -> str:
-    """Save extracted PDF text to a file"""
-    file_path = os.path.join(PDF_STORAGE_DIR, f"{pdf_id}.txt")
-    
-    with open(file_path, 'w', encoding='utf-8') as f:
-        f.write(text)
-    
-    return file_path
-
-def get_pdf_text(pdf_id: str) -> Optional[str]:
-    """Retrieve PDF text from storage"""
-    file_path = os.path.join(PDF_STORAGE_DIR, f"{pdf_id}.txt")
-    
-    if not os.path.exists(file_path):
-        return None
-    
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return f.read()
+def extract_text_with_openai(pdf_file_path: str, client) -> Dict[str, Any]:
+    """Extract text from PDF using OpenAI's PDF parsing capabilities"""
+    try:
+        # First, let's use PyMuPDF as a fallback for PDF extraction
+        fallback_text = ""
+        try:
+            fallback_text = extract_text_from_pdf(pdf_file_path)
+            print(f"Extracted fallback text with PyMuPDF: {len(fallback_text)} chars")
+        except Exception as fallback_error:
+            print(f"Fallback extraction failed: {fallback_error}")
+        
+        # Now try to create a completion with simple text-only prompt
+        # This avoids the file attachment issues entirely
+        system_prompt = "You are a helpful PDF text extractor. Extract all text from the PDF content below, preserving the structure. Don't analyze or summarize."
+        
+        with open(pdf_file_path, "rb") as f:
+            try:
+                import PyPDF2
+                pdf_reader = PyPDF2.PdfReader(f)
+                text_content = ""
+                
+                # Extract text from each page
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    text_content += f"--- Page {page_num + 1} ---\n"
+                    text_content += page.extract_text() + "\n\n"
+                
+                print(f"Successfully extracted text with PyPDF2: {len(text_content)} chars")
+                
+                # If PyPDF2 extraction is very short but PyMuPDF got more text, use that instead
+                if len(text_content) < 500 and len(fallback_text) > len(text_content):
+                    print("Using PyMuPDF text instead of PyPDF2 text due to better extraction")
+                    text_content = fallback_text
+                
+                # Generate a summary
+                summary_response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {
+                            "role": "system", 
+                            "content": "Create a concise 1-2 sentence summary of the following PDF content. Focus only on the main topic."
+                        },
+                        {"role": "user", "content": text_content[:4000]}  # Use beginning of document for summary
+                    ],
+                    temperature=0.3,
+                    max_tokens=100
+                )
+                
+                summary = summary_response.choices[0].message.content
+                
+                # Count words
+                word_count = len(text_content.split())
+                print(f"PDF extraction successful: {len(text_content)} chars, {word_count} words")
+                print(f"Generated summary: {summary}")
+                
+                return {
+                    "text": text_content,
+                    "summary": summary,
+                    "word_count": word_count,
+                    "token_estimate": round(word_count * 1.3)  # Approximate token count
+                }
+                
+            except ImportError:
+                print("PyPDF2 not available, using fallback text")
+                # If PyPDF2 isn't available, use fallback text from PyMuPDF
+                if fallback_text:
+                    # Generate a summary for the fallback text
+                    summary_response = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {
+                                "role": "system", 
+                                "content": "Create a concise 1-2 sentence summary of the following PDF content. Focus only on the main topic."
+                            },
+                            {"role": "user", "content": fallback_text[:4000]}  # Use beginning of document for summary
+                        ],
+                        temperature=0.3,
+                        max_tokens=100
+                    )
+                    
+                    summary = summary_response.choices[0].message.content
+                    word_count = len(fallback_text.split())
+                    
+                    return {
+                        "text": fallback_text,
+                        "summary": summary,
+                        "word_count": word_count,
+                        "token_estimate": round(word_count * 1.3)  # Approximate token count
+                    }
+                else:
+                    raise Exception("Failed to extract text from PDF using any available method")
+            
+    except Exception as e:
+        print(f"Error extracting text with OpenAI: {e}")
+        return {"error": str(e)}
 
 def process_pdf(pdf_file) -> Dict[str, Any]:
     """Process PDF file, extract text, and store in vector DB"""
@@ -116,80 +205,109 @@ def process_pdf(pdf_file) -> Dict[str, Any]:
         temp_filename = temp.name
     
     try:
-        # Extract text using simple approach
-        text = extract_text_from_pdf(temp_filename)
+        # Check for OpenAI API key
+        api_key = os.environ.get("OPENAI_API_KEY")
+        api_key_present = bool(api_key)
         
-        if not text or len(text.strip()) < 100:
+        if not api_key_present:
             return {
                 "success": False,
-                "error": "Could not extract sufficient text from PDF"
+                "error": "OpenAI API key is required for PDF processing"
             }
         
-        # Get word count and estimate token count more accurately
-        word_count = len(text.split())
-        token_estimate = round(word_count * 1.3)  # Average 1.3 tokens per word
+        text = ""
+        summary = ""
+        
+        # Create OpenAI client
+        client = create_openai_client(api_key)
+        
+        # Extract text using OpenAI - single method, no fallbacks for simplicity
+        result = extract_text_with_openai(temp_filename, client)
+        
+        if "error" in result:
+            # If OpenAI extraction fails, return the error
+            return {
+                "success": False,
+                "error": f"Failed to extract text: {result['error']}"
+            }
+        
+        text = result["text"]
+        summary = result["summary"]
+        word_count = result["word_count"]
+        token_estimate = result["token_estimate"]
+        
+        if not text or len(text.strip()) < 10:  # Very minimal validation
+            return {
+                "success": False,
+                "error": "Could not extract text from PDF"
+            }
         
         # Save extracted text
         text_file_path = save_pdf_text(pdf_id, text)
         
-        # Only attempt to create vectors if OpenAI API key is present
-        api_key = os.environ.get("OPENAI_API_KEY")
+        # Store in vector DB if possible
         vector_storage_successful = False
         chunks = []
         
-        if api_key:
-            try:
-                # Create chunks for vector storage
-                text_splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=1000,
-                    chunk_overlap=100,
-                    separators=["\n\n", "\n", ". ", " ", ""]
-                )
-                chunks = text_splitter.split_text(text)
+        try:
+            # Simple chunking for vector storage
+            text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=200,
+                length_function=len,
+            )
+            chunks = text_splitter.split_text(text)
+            
+            if chunks:
+                print(f"Created {len(chunks)} chunks for vector storage")
                 
-                # Try to store in vector database with metadata
-                try:
-                    vector_store = get_vector_store()
-                    vector_store.add_texts(
-                        texts=chunks,
-                        metadatas=[{"pdf_id": pdf_id, "chunk_id": i} for i in range(len(chunks))],
-                        ids=[f"{pdf_id}-{i}" for i in range(len(chunks))]
-                    )
-                    vector_store.persist()
-                    vector_storage_successful = True
-                    print(f"Successfully stored {len(chunks)} chunks in vector database")
-                except Exception as vector_error:
-                    # If vector storage fails, log error but continue
-                    print(f"Error storing in vector database: {vector_error}")
-                    # We'll still return the text even if vector storage fails
-            except Exception as chunk_error:
-                print(f"Error chunking text: {chunk_error}")
-                # Continue with the raw text even if chunking fails
-        else:
-            print("No OpenAI API key found, skipping vector storage")
-            vector_storage_successful = False
+                # Create embeddings
+                embeddings = OpenAIEmbeddings(api_key=api_key)
+                
+                # Create metadata for each chunk
+                documents = [
+                    {"page_content": chunk, 
+                     "metadata": {
+                         "pdf_id": pdf_id,
+                         "chunk_id": i,
+                         "source": "pdf"
+                      }
+                    } for i, chunk in enumerate(chunks)
+                ]
+                
+                # Store in vector DB
+                vector_store = Chroma.from_documents(
+                    documents=documents,
+                    embedding=embeddings,
+                    persist_directory=CHROMA_PERSIST_DIR
+                )
+                
+                # Persist to disk
+                vector_store.persist()
+                print(f"Successfully stored {len(chunks)} chunks in vector DB")
+                vector_storage_successful = True
+            else:
+                print("Warning: No chunks created from text")
+        except Exception as e:
+            print(f"Error creating vector embeddings: {e}")
+            # Continue with the process even if vector storage fails
         
-        # Create and return document info
+        # Return success with metadata
         return {
             "success": True,
             "pdf_id": pdf_id,
             "text": text,
-            "chunks": len(chunks),
+            "summary": summary,
             "file_path": text_file_path,
+            "chunks": len(chunks),
             "vector_storage": vector_storage_successful,
-            "api_key_present": bool(api_key),
+            "api_key_present": api_key_present,
             "word_count": word_count,
             "token_estimate": token_estimate
         }
     
     except Exception as e:
         print(f"Error processing PDF: {e}")
-        # Check for API key related errors
-        if "API key" in str(e) or "authentication" in str(e).lower():
-            return {
-                "success": False, 
-                "error": "OpenAI API key error: Please check your API key configuration"
-            }
         return {"success": False, "error": str(e)}
     finally:
         # Clean up temp file

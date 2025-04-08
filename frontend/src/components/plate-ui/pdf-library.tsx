@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { cn } from '@udecode/cn';
-import { sanitizePdfContent, extractTextFromPdf, extractTextWithFileReader } from '@/components/plate-ui/pdf-utils';
+import { sanitizePdfContent, extractTextFromPdf } from '@/components/plate-ui/pdf-utils';
 import { useRef, useEffect, useState } from 'react';
 import { FileText, FolderIcon } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -21,6 +21,7 @@ export type PdfDocument = {
   content?: string;
   preview?: string;
   pdf_id?: string;
+  summary?: string;
 };
 
 const PDF_LIBRARY_STORAGE_KEY = 'pdf_library';
@@ -115,6 +116,7 @@ export function PdfLibrary({ onSelect }: PdfLibraryProps) {
             pdfWithContent.content = result.text;
             pdfWithContent.pdf_id = result.pdf_id; // Store backend PDF ID
             pdfWithContent.preview = result.text.slice(0, 150).replace(/\n/g, ' ') + '...';
+            pdfWithContent.summary = result.summary; // Store the summary
             
             // Update state and save
             setPdfs([...updatedPdfs]);
@@ -223,16 +225,28 @@ export function PdfLibrary({ onSelect }: PdfLibraryProps) {
                         <p className="text-xs text-muted-foreground">
                           {formatFileSize(pdf.size)} • {formatDate(pdf.date)}
                         </p>
-                        {pdf.preview && (
+                        {pdf.summary ? (
+                          <div className="mt-1">
+                            <p className="text-xs font-medium text-slate-700 dark:text-slate-200 line-clamp-2">
+                              {pdf.summary}
+                            </p>
+                          </div>
+                        ) : null}
+                        {pdf.preview && !pdf.summary && (
                           <p className="text-xs text-muted-foreground mt-1 line-clamp-2 italic">
                             "{pdf.preview}"
                           </p>
                         )}
                         {pdf.content ? (
-                          <div className="flex items-center mt-1">
+                          <div className="flex flex-wrap gap-1 mt-1">
                             <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 px-2 py-0.5 rounded-full">
-                              Content Extracted ({Math.round(pdf.content.split(/\s+/).length * 1.3)} tokens)
+                              Content Extracted ({Math.round((pdf.content.length / 5))} tokens)
                             </span>
+                            {pdf.summary && (
+                              <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400 px-2 py-0.5 rounded-full">
+                                With Summary
+                              </span>
+                            )}
                           </div>
                         ) : (
                           <div className="flex items-center mt-1">

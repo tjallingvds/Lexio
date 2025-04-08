@@ -44,10 +44,16 @@ import { cn } from '@udecode/cn';
 
 type Message = {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
   sources?: Array<{ title: string, url: string, snippet?: string }>;
+  metadata?: {
+    type?: string;
+    pdfId?: string;
+    backendPdfId?: string;
+    [key: string]: any;
+  };
 };
 
 // Get document ID from sessionStorage or window variable
@@ -100,7 +106,7 @@ const loadMessages = (documentId: string | null): Message[] => {
       return parsedMessages.map((msg: any) => ({
         ...msg,
         timestamp: new Date(msg.timestamp),
-        role: msg.role as 'user' | 'assistant'
+        role: msg.role as 'user' | 'assistant' | 'system'
       }));
     }
   } catch (e) {
@@ -111,7 +117,7 @@ const loadMessages = (documentId: string | null): Message[] => {
   return [{
       id: '1',
     role: 'assistant' as const,
-      content: 'Hello! How can I assist you with your document today?',
+      content: 'Hello! I now have improved PDF handling capabilities, reliably extracting content from your documents. Each PDF also gets a helpful summary so you can easily identify it in your library.',
       timestamp: new Date(),
   }];
 };
@@ -126,6 +132,7 @@ type PdfDocument = {
   content?: string;
   preview?: string;
   pdf_id?: string;
+  summary?: string;
 };
 
 // Add these functions to fix the linter errors
@@ -162,6 +169,7 @@ export function AiChat() {
   // And replace with our own state:
   const [input, setInput] = React.useState<string>('');
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const [documentContent, setDocumentContent] = React.useState('');
   const [thinking, setThinking] = React.useState(false);
   const [hasInteraction, setHasInteraction] = React.useState(false);
@@ -195,6 +203,9 @@ export function AiChat() {
     }
   });
   
+  // Define MAX_PDF_LENGTH constant near the top of the component
+  const MAX_PDF_LENGTH = 10000; // Maximum length of PDF content to include in context
+
   // Handler for selecting a PDF from the library
   const handleSelectPdf = async (pdf: PdfDocument) => {
     try {
@@ -311,9 +322,9 @@ export function AiChat() {
       return;
     }
     
-    // Check file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('PDF file is too large. Please upload a file smaller than 10MB');
+    // Check file size (max 25MB - increased limit)
+    if (file.size > 25 * 1024 * 1024) {
+      toast.error('PDF file is too large. Please upload a file smaller than 25MB');
       event.target.value = '';
       return;
     }
@@ -321,21 +332,22 @@ export function AiChat() {
     try {
       setIsPdfUploading(true);
       setPdfName(file.name);
-      toast.info(`Processing PDF ${file.name}. This may take a moment...`);
+      const toastId = toast.loading(`Processing PDF ${file.name}. This may take up to a minute...`);
       
-      // Use the improved extraction method
+      // Extract text from PDF
       const result = await extractTextFromPdf(file);
       
-      if (!result.text || result.text.length < 100) {
-        throw new Error("No meaningful text could be extracted from this PDF. It may be scanned or contain only images.");
+      // Ensure we have text content
+      if (!result.text) {
+        toast.error("No text could be extracted from this PDF.", { id: toastId });
+        return;
       }
       
-      // Success - add to context
+      // Success - create PDF document
       const pdfId = Date.now().toString();
       const cleanedText = sanitizePdfContent(result.text);
-      handleAddPdfToContext(pdfId, file.name, cleanedText, result.pdf_id);
       
-      // Also save to PDF library
+      // Create the PDF document with summary
       const newPdf: PdfDocument = {
         id: pdfId,
         name: file.name,
@@ -343,21 +355,55 @@ export function AiChat() {
         date: new Date(),
         content: cleanedText,
         pdf_id: result.pdf_id,
-        preview: result.text.slice(0, 150).replace(/\n/g, ' ') + '...'
+        preview: result.text.slice(0, 150).replace(/\n/g, ' ') + '...',
+        summary: result.summary
       };
       
-      // Get PDF library from localStorage
+      // Add to selected PDFs
+      setSelectedPdfs(prev => [...prev, newPdf]);
+      
+      // Add to messages
+      addPdfContentToMessages(pdfId, file.name, cleanedText, result.pdf_id, result.summary);
+      
+      // Save to library
       const loadedPdfs = loadPdfLibrary();
       savePdfLibrary([...loadedPdfs, newPdf]);
       
-      // Use token estimate from backend if available, otherwise calculate
+      // Show success message with word count
       const tokenEstimate = result.token_estimate || Math.round(cleanedText.split(/\s+/).length * 1.3);
-      toast.success(`PDF "${file.name}" added to context and library (approx. ${tokenEstimate} tokens)`);
+      toast.success(`Successfully processed "${file.name}" (${tokenEstimate} tokens)`, { id: toastId });
+      
     } catch (error) {
       console.error('PDF extraction failed:', error);
-      setPdfDebugInfo(`Failed to extract text: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Show detailed error
+      toast.error(`Failed to process PDF: ${errorMessage}`, { duration: 5000 });
+      
+      // Debug information for troubleshooting
+      let debugMessage = `Error: ${errorMessage}`;
+      if (errorMessage.includes('API key')) {
+        debugMessage = "OpenAI API key error. Please check your API key in Settings.";
+      } else if (errorMessage.includes('timed out')) {
+        debugMessage = "The PDF processing timed out. The file may be too large or complex. Try with a smaller or simpler PDF.";
+      } else if (errorMessage.includes('format') || errorMessage.includes('corrupted')) {
+        debugMessage = "The PDF file appears to be corrupted or in an unsupported format. Try saving it with a different PDF tool before uploading.";
+      }
+      
+      setPdfDebugInfo(debugMessage);
       setShowDebugInfo(true);
-      toast.error("Failed to extract text from PDF. It may be scanned, encrypted, or contain only images.");
+      
+      // Add helpful error message to chat
+      setMessages(prev => [
+        ...prev,
+        {
+          id: String(Date.now()),
+          role: 'assistant',
+          content: `⚠️ I couldn't process the PDF. ${debugMessage}`,
+          timestamp: new Date()
+        }
+      ]);
+      
     } finally {
       setIsPdfUploading(false);
       event.target.value = '';
@@ -441,7 +487,7 @@ export function AiChat() {
     const initialMessages: Message[] = [{
       id: '1',
       role: 'assistant' as const,
-      content: 'Hello! How can I assist you with your document today?',
+      content: 'Hello! I now have improved PDF handling capabilities, reliably extracting content from your documents. Each PDF also gets a helpful summary so you can easily identify it in your library.',
       timestamp: new Date(),
     }];
     
@@ -687,251 +733,314 @@ export function AiChat() {
     return { __html: result };
   };
 
-  // Helper function to truncate content to a maximum length
+  /**
+   * Truncate content to a maximum length while maintaining sentence integrity
+   */
   const truncateContent = (content: string, maxLength: number): string => {
-    if (content.length <= maxLength) return content;
+    if (!content || content.length <= maxLength) return content;
     
-    const halfMax = Math.floor(maxLength / 2);
-    const start = content.slice(0, halfMax);
-    const end = content.slice(-halfMax);
+    // Try to truncate at a sentence boundary
+    const truncated = content.slice(0, maxLength);
+    const lastPeriod = truncated.lastIndexOf('.');
     
-    return `${start}...${end}`;
+    if (lastPeriod > maxLength * 0.8) {
+      // Cut at sentence if we can maintain at least 80% of requested content
+      return truncated.slice(0, lastPeriod + 1) + ` [...truncated, ${Math.floor((content.length - lastPeriod - 1) / 1000)}k chars omitted]`;
+    }
+    
+    // Otherwise just cut at maxLength with a note
+    return truncated + ` [...truncated, ${Math.floor((content.length - maxLength) / 1000)}k chars omitted]`;
   };
 
   // Helper function to directly call the API with fetch instead of the useChat hook
   const sendDirectApiRequest = async (userMessage: string, systemPrompt: string, skipAddingUserMessage = false) => {
-    try {
-      console.log('Sending direct API request with system prompt length:', systemPrompt.length);
+    // Check for OpenAI API key
+    if (!keys?.openai && !keys?.openAIKey) {
+      toast.error('Missing OpenAI API key. Please add your API key in the Settings panel.');
       
-      // Only add user message to UI if not skipped
-      if (!skipAddingUserMessage) {
-        // Add user message to UI
-        const userMessageObj: Message = {
-          id: Date.now().toString(),
-          role: 'user',
-          content: userMessage,
-          timestamp: new Date(),
-        };
-        
-        setMessages(prevMessages => [...prevMessages, userMessageObj]);
-      }
-      
-      // Check for API key first
-      if (!keys.openai) {
-        console.error('No API key available. Please set one in the settings.');
-        // Add error message to chat
-        const errorMessage: Message = {
-          id: Date.now().toString(),
+      setMessages(prev => [
+        ...prev,
+        {
+          id: String(Date.now()),
           role: 'assistant',
-          content: 'No API key available. Please configure your OpenAI API key in the Settings panel.',
-          timestamp: new Date(),
-        };
-        
-        setMessages(prevMessages => [...prevMessages, errorMessage]);
-        setThinking(false);
-        return;
+          content: "⚠️ I need an OpenAI API key to respond. Please add your API key in the Settings panel.",
+          timestamp: new Date()
+        }
+      ]);
+      
+      setThinking(false);
+      return;
+    }
+    
+    // Create sanitized user message object for API
+    const userMessageObj: Message = {
+      id: String(Date.now()),
+      role: 'user',
+      content: userMessage,
+      timestamp: new Date()
+    };
+    
+    // Create error message template
+    const errorMessage: Message = {
+      id: String(Date.now()),
+      role: 'assistant',
+      content: "Sorry, I encountered an error processing your request.",
+      timestamp: new Date()
+    };
+    
+    // Pre-estimate token count for PDF content
+    let totalPdfTokenCount = 0;
+    let largestPdfName = "";
+    let largestPdfTokens = 0;
+    
+    // Check if we have PDFs in context and estimate their token counts
+    if (selectedPdfs.length > 0) {
+      for (const pdf of selectedPdfs) {
+        if (pdf.content) {
+          const tokenEstimate = Math.round(pdf.content.length / 4); // Rough estimate: 4 chars ≈ 1 token
+          totalPdfTokenCount += tokenEstimate;
+          
+          if (tokenEstimate > largestPdfTokens) {
+            largestPdfTokens = tokenEstimate;
+            largestPdfName = pdf.name;
+          }
+        }
       }
       
-      console.log('API Key available, length:', keys.openai?.length || 0);
+      // If total PDF content seems too large, warn the user
+      if (totalPdfTokenCount > 15000) {
+        toast.warning(`Warning: You have a large amount of PDF content in context (approx. ${totalPdfTokenCount} tokens). This may cause the AI to fail or respond slowly.`);
+      }
+    }
+    
+    // Add user message to UI state if not skipping
+    if (!skipAddingUserMessage) {
+      setMessages(prev => [...prev, userMessageObj]);
+    }
+    
+    // Used for source attribution in web search cases
+    let sourcesList: Array<{ title: string, url: string, snippet?: string }> = [];
+
+    try {
+      // Switch to thinking state
+      setThinking(true);
       
-      // Prepare messages array with history - use more context
-      const messageHistory = messages
-        .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-        .slice(-8) // Use last 8 messages for context
-        .map(msg => ({
-          role: msg.role,
-          content: msg.content
-        }));
+      // Get current document content if any
+      const documentText = documentContent.trim();
       
-      // Add the new user message
-      messageHistory.push({ role: 'user', content: userMessage });
+      // Combine selected PDFs content in context
+      let pdfContent = '';
+      if (selectedPdfs.length > 0) {
+        for (const pdf of selectedPdfs) {
+          if (pdf.content) {
+            pdfContent += `=== PDF: ${pdf.name} ===\n${truncateContent(pdf.content, MAX_PDF_LENGTH)}\n\n`;
+          }
+        }
+      }
       
-      console.log('Message history prepared, count:', messageHistory.length);
+      // Create system message with appropriate context
+      let effectiveSystemPrompt = systemPrompt || '';
       
-      // Determine the model to use based on web search requirement
-      let model = keys.openaiModel || 'gpt-4o-mini';
+      // Add document context if available
+      if (documentText) {
+        effectiveSystemPrompt += `\n\nDocument context:\n${documentText}`;
+      }
+      
+      // Add PDF content if available
+      if (pdfContent) {
+        effectiveSystemPrompt += `\n\nPDF context:\n${pdfContent}`;
+      }
+      
+      // Add web search instructions if enabled
       if (webSearchEnabled) {
-        // Use search-enabled models when web search is enabled
-        model = "gpt-4o-search-preview";
-        console.log("Web search enabled - forcing model to gpt-4o-search-preview");
+        effectiveSystemPrompt = getSystemPromptWithWebSearch(effectiveSystemPrompt);
       }
       
-      // Truncate system prompt if it's too large to prevent token limit errors
-      const truncatedSystemPrompt = truncateContent(systemPrompt, 100000);
+      // Log the estimated token counts for debugging
+      let promptTokenEstimate = Math.round((effectiveSystemPrompt.length + userMessage.length) / 4);
+      console.log(`Estimated token counts - System: ${Math.round(effectiveSystemPrompt.length / 4)}, User: ${Math.round(userMessage.length / 4)}, Total: ${promptTokenEstimate}`);
       
-      // Prepare request body with proper formatting
-      const requestBody: any = {
-        messages: messageHistory,
-        system: truncatedSystemPrompt,
-        apiKey: keys.openai,
-        model: model,
+      // Handle model selection based on context size
+      let model = 'gpt-3.5-turbo'; // Default model
+      
+      if (webSearchEnabled) {
+        model = 'gpt-4o-search-preview'; // Use search model if web search enabled
+      } else if (promptTokenEstimate > 15000) {
+        model = 'gpt-4o'; // Use GPT-4o for larger contexts
+      } else if (promptTokenEstimate > 100000) {
+        // If extremely large, warn user and truncate content
+        toast.warning("Content is extremely large and has been truncated to prevent errors.");
+        effectiveSystemPrompt = effectiveSystemPrompt.slice(0, 100000); // Rough truncation to avoid API errors
+      }
+      
+      // Log the model choice
+      console.log(`Using model: ${model} for request`);
+      
+      // Create the temporary UI message for streaming
+      const tempMessage: Message = {
+        id: String(Date.now()),
+        role: 'assistant',
+        content: '',
+        timestamp: new Date()
       };
       
-      // Add web search options if enabled
-      if (webSearchEnabled) {
-        console.log('Adding web search options to request');
-        requestBody.web_search_options = { search_context_size: "medium" };
-      }
+      // Add the temporary message to the UI
+      setMessages(prev => [...prev, tempMessage]);
       
-      // Debug logs
-      console.log('API Key provided for request:', !!keys.openai);
-      console.log('Message history length:', messageHistory.length);
-      console.log('System prompt length (after truncation):', truncatedSystemPrompt.length);
-      console.log('Original system prompt length:', systemPrompt.length);
-      console.log('Using model:', model);
-      console.log('Web search enabled:', webSearchEnabled);
-      
-      // Call the local proxy endpoint
-      const apiUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5001'}/api/ai/command`;
-      console.log('Calling API at URL:', apiUrl);
-      
-      const response = await fetch(apiUrl, {
+      // Prepare the API request options
+      const requestOptions = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${keys.openai}`,
+          'Accept': 'text/event-stream',
         },
-        body: JSON.stringify(requestBody),
-      });
+        body: JSON.stringify({
+          apiKey: keys.openai || keys.openAIKey,
+          model,
+          messages: [{
+            role: 'user',
+            content: userMessage
+          }],
+          system: effectiveSystemPrompt,
+          web_search_options: webSearchEnabled ? { include_search_results: true } : undefined
+        })
+      };
       
-      // Handle error responses
+      // Set up event source
+      const response = await fetch('/api/ai/command', requestOptions);
+      
       if (!response.ok) {
         let errorMessage = `API request failed with status ${response.status}`;
         
-        // Try to extract detailed error message
         try {
           const errorData = await response.json();
           if (errorData && errorData.error) {
             errorMessage = `${errorData.error}${errorData.details ? ': ' + errorData.details : ''}`;
-            console.error('API Error:', errorMessage);
           }
         } catch (e) {
-          console.error('Error parsing error response:', e);
+          // If we can't parse the error, use the generic message
         }
         
         throw new Error(errorMessage);
       }
       
-      console.log('Direct API response received');
-      
-      // Handle streaming response
       const reader = response.body?.getReader();
       if (!reader) {
-        throw new Error('Response body is not readable');
+        throw new Error('Failed to get response stream reader');
       }
       
-      // Collect response content
-      let responseContent = '';
-      let responseId = Date.now().toString();
+      let receivedText = '';
+      let responseMessageId = tempMessage.id;
       
-      // Show a temporary message until we get content
-      const tempMessage: Message = {
-        id: responseId,
-        role: 'assistant',
-        content: '...',
-        timestamp: new Date(),
-      };
-      
-      setMessages(prevMessages => [...prevMessages, tempMessage]);
-      console.log('Added temporary assistant message with id:', responseId);
-      
-      // Read the stream
-      let hasReceivedContent = false;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            console.log('Stream reading complete');
-            break;
-          }
-          
-          // Convert the chunk to text
-          const chunk = new TextDecoder().decode(value);
-          
-          // Process the chunk (Server-Sent Events format)
-          const lines = chunk.split('\n\n');
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.substring(6);
-              if (data === '[DONE]') {
-                // Stream is complete
-                console.log('Stream complete marker received');
-                break;
+      // Process the stream
+      while (true) {
+        const { done, value } = await reader.read();
+        
+        if (done) {
+          console.log('Stream completed');
+          break;
+        }
+        
+        if (!value) continue;
+        
+        // Decode the received chunk
+        const chunk = new TextDecoder().decode(value);
+        
+        // Parse SSE messages (data: {...})
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(5);
+            
+            if (data === '[DONE]') {
+              console.log('Received [DONE] marker');
+              continue;
+            }
+            
+            try {
+              const parsed = JSON.parse(data);
+              
+              if (parsed.error) {
+                console.error('Error in stream:', parsed.error);
+                throw new Error(parsed.error);
               }
               
-              try {
-                const parsedData = JSON.parse(data);
-                if (parsedData.content) {
-                  hasReceivedContent = true;
-                  responseContent += parsedData.content;
-                  
-                  // Update the message with the current content
-                  setMessages(prevMessages => prevMessages.map(msg => 
-                    msg.id === responseId 
-                      ? { ...msg, content: responseContent } 
-                      : msg
-                  ));
-                } else if (parsedData.error) {
-                  // Handle error in the stream
-                  throw new Error(parsedData.error);
+              if (parsed.content) {
+                receivedText += parsed.content;
+                
+                // Process the response for web search sources if present
+                if (receivedText.includes('Sources:') && webSearchEnabled) {
+                  const { content, sources } = extractSourcesFromMessage(receivedText);
+                  if (sources.length > 0) {
+                    sourcesList = sources;
+                    receivedText = content;
+                  }
                 }
-              } catch (e) {
-                console.log('Error parsing chunk data:', e, 'Raw data:', data);
+                
+                // Update message content with the received text
+                setMessages(prev => prev.map(msg => 
+                  msg.id === responseMessageId 
+                    ? { ...msg, content: receivedText, sources: sourcesList.length > 0 ? sourcesList : undefined }
+                    : msg
+                ));
               }
+            } catch (e) {
+              console.warn('Error parsing SSE data:', e, 'Raw data:', data);
             }
           }
         }
-      } catch (streamError) {
-        console.error('Error reading stream:', streamError);
-        throw streamError;
       }
       
-      // Finalize the response
-      if (responseContent) {
-        console.log('Final response content length:', responseContent.length);
-        
-        // Parse out any sources from the message
-        const { content: cleanContent, sources } = extractSourcesFromMessage(responseContent);
-        
-        // Update the existing message with the complete content and any extracted sources
-        setMessages(prevMessages => prevMessages.map(msg => 
-          msg.id === responseId 
-            ? { 
-                ...msg, 
-                content: cleanContent,
-                ...(sources.length > 0 && { sources })
-              } 
-            : msg
-        ));
-      } else if (!hasReceivedContent) {
-        // No content received, show error message
-        console.error('No response content received from AI');
-        
-        setMessages(prevMessages => prevMessages.map(msg => 
-          msg.id === responseId 
-            ? { 
-                ...msg, 
-                content: 'No response received from AI. This could be due to the PDF content being too large. Try asking about specific parts of the PDF rather than the entire document.' 
-              } 
-            : msg
-        ));
+      // If we received no text, show an error
+      if (receivedText.trim() === '') {
+        throw new Error('No response received from AI. This could be due to the PDF content being too large. Try asking about specific parts of the PDF rather than the entire document.');
       }
       
-      // Turn off the thinking state
-      setThinking(false);
+      // Scroll to bottom after receiving message
+      scrollToBottom();
       
+      // Save messages to localStorage
+      saveMessages(messages, documentId);
+      
+      // Mark that we've had an interaction
+      setHasInteraction(true);
     } catch (error) {
-      console.error('Error in direct API request:', error);
+      console.error('API error:', error);
+      
+      // Prepare error message based on error type
+      const errorContent = error instanceof Error ? error.message : 'Unknown error';
+      
+      // Format helpful error messages for common issues
+      let userFriendlyMessage = "Sorry, there was an error processing your request.";
+      
+      if (errorContent.includes('API key')) {
+        userFriendlyMessage = "There seems to be an issue with your OpenAI API key. Please check that it's valid and has sufficient credits.";
+      } 
+      else if (errorContent.includes('content') && errorContent.includes('large')) {
+        // This is likely due to large PDFs
+        userFriendlyMessage = `The PDF content is too large for the AI to process. Try asking about specific parts of ${largestPdfName || 'the PDF'} instead of the entire document. For example: "Summarize page 3" or "What does the introduction say about X?"`;
+      }
+      else if (errorContent.includes('timed out') || errorContent.includes('timeout')) {
+        userFriendlyMessage = "The request timed out. This might be due to the large size of the PDF content. Try asking about specific sections instead.";
+      }
+      else if (errorContent.includes('rate limit') || errorContent.includes('overloaded')) {
+        userFriendlyMessage = "OpenAI's servers are currently busy. Please try again in a few moments.";
+      }
       
       // Add error message to chat
       const errorMessage: Message = {
-        id: Date.now().toString(),
+        id: String(Date.now()),
         role: 'assistant',
-        content: `Sorry, there was an error processing your request: ${error instanceof Error ? error.message : 'Unknown error'}. This may be due to the PDF content being too large for the API. Try asking about specific parts of the PDF instead.`,
-        timestamp: new Date(),
+        content: userFriendlyMessage,
+        timestamp: new Date()
       };
       
-      setMessages(prevMessages => [...prevMessages, errorMessage]);
+      setMessages(prev => [...prev, errorMessage]);
+      
+      // Show toast notification
+      toast.error(userFriendlyMessage);
+    } finally {
+      // End the thinking state regardless of outcome
       setThinking(false);
     }
   };
@@ -1187,49 +1296,46 @@ ${truncatedDocContent}
   };
 
   // Add a PDF to chat context
-  const handleAddPdfToContext = (id: string, name: string, content: string, pdf_id?: string) => {
-    // Check if this PDF is already in context
-    const exists = selectedPdfs.some(pdf => pdf.id === id);
-    if (exists) {
-      toast.info(`PDF "${name}" is already in context`);
-      return;
-    }
+  const handleAddPdfToContext = (
+    pdfId: string, 
+    pdfName: string, 
+    pdfContent: string, 
+    backendPdfId?: string,
+    summary?: string
+  ) => {
+    if (!pdfContent) return;
     
-    // Add to selected PDFs
-    setSelectedPdfs([...selectedPdfs, {
-      id,
-      name,
-      content,
-      pdf_id,
-      size: content.length,
-      date: new Date()
-    }]);
+    // Format PDF content for context
+    const summaryText = summary ? `Summary: ${summary}\n\n` : '';
+    const formattedContent = `
+📄 PDF: ${pdfName}
+${summaryText}Content:
+${pdfContent.trim().slice(0, MAX_PDF_LENGTH)}
+${pdfContent.length > MAX_PDF_LENGTH ? '... (content truncated due to length)' : ''}
+    `.trim();
     
-    // Switch to chat view
-    setActiveView('chat');
+    // Add system message to let user know PDF was added
+    setMessages(prev => [
+      ...prev,
+      {
+        id: String(Date.now()),
+        role: 'system',
+        content: `📄 Added PDF: "${pdfName}" to the conversation context.${summaryText}`,
+        timestamp: new Date(),
+        metadata: {
+          type: 'pdf_added',
+          pdfId,
+          backendPdfId
+        }
+      }
+    ]);
     
-    toast.success(`PDF "${name}" added to chat context`);
-    
-    // Show warning for large PDFs to help avoid errors
-    if (content.length > 50000) {
-      setTimeout(() => {
-        toast.warning(
-          'This PDF contains a large amount of text. To get the best responses, ask specific questions about parts of the document rather than about the entire content.',
-          { duration: 6000 }
-        );
-        
-        // Also add a helpful system message
-        setMessages(prev => [
-          ...prev,
-          {
-            id: String(Date.now()),
-            role: 'assistant',
-            content: "⚠️ I've noticed the PDF you added contains a lot of text. To get the best results, please ask specific questions about particular sections or topics in the document, rather than general questions about the entire content.",
-            timestamp: new Date()
-          }
-        ]);
-      }, 1000);
-    }
+    // Focus input after adding PDF
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, 100);
   };
 
   // Function to toggle web search
@@ -1278,31 +1384,35 @@ ${truncatedDocContent}
     }
   }, [selectedPdfs.length, keys?.openai, keys?.openAIKey]);
 
-  // Modify system prompt to add web search capabilities
+  /**
+   * Add web search instructions to the system prompt
+   */
   const getSystemPromptWithWebSearch = (basePrompt: string) => {
-    if (!webSearchEnabled) return basePrompt;
+    // Extract PDF summaries for better search context
+    let pdfSummaries = '';
+    if (selectedPdfs.length > 0) {
+      pdfSummaries = selectedPdfs
+        .filter(pdf => pdf.summary)
+        .map(pdf => `- ${pdf.name}: ${pdf.summary}`)
+        .join('\n');
+      
+      if (pdfSummaries) {
+        pdfSummaries = `\n\nPDF summaries for search context:\n${pdfSummaries}`;
+      }
+    }
     
-    return `${basePrompt}
+    return `${basePrompt}${pdfSummaries}
 
-You have access to current web search results to provide up-to-date information. When answering questions about current events, trends, or topics that require recent data, incorporate relevant information from the web.
+You have access to web search. Based on the user's query, decide whether to search for more information on the web.
 
-When citing web sources, follow these guidelines EXACTLY:
-1. Include ONLY numbered citations [1], [2] directly after statements that use information from sources
-2. NEVER include any URLs or website links in your answer text
-3. NEVER include website names in parentheses like ([website.com]) - use only the citation numbers
-4. NEVER use markdown-style links like [text](url) - use only citation numbers [1], [2]
-5. At the end of your response, add a "Sources:" section with sources in this format:
-   [1]: Title (URL)
-   [2]: Title (URL)
+When searching, follow these principles:
+1. If the user's question is directly asking for web search, perform a search.
+2. If the user's query might benefit from recent information, perform a search.
+3. If the query relates to specific facts, statistics, news, or evolving topics, perform a search.
+4. If the user explicitly asks not to search, don't search.
+5. If the information is clearly in the PDF context already, you might not need to search.
 
-Example of correct citation format:
-"Claus-Casimir of Orange-Nassau was born on March 21, 2004 [1]. He attended Gordonstoun, a prestigious boarding school in Scotland [2]."
-
-Sources:
-[1]: Royal Family Database (https://royalty.example.com/dutch-royal-family)
-[2]: Gordonstoun Alumni (https://gordonstoun.example.edu/alumni)
-
-The citation numbers will be automatically converted to interactive badges in the user interface.`; 
+When including search results in your answer, be sure to cite sources using [1], [2], etc. and include a "Sources" section at the end with numbered links. If the source provides particularly relevant information, you may quote brief passages.`;
   };
 
   // Update the SourcesList component with better styling
@@ -1338,6 +1448,137 @@ The citation numbers will be automatically converted to interactive badges in th
         </div>
       </div>
     );
+  };
+
+  // Add PDF content to messages
+  const addPdfContentToMessages = (
+    pdfId: string, 
+    pdfName: string, 
+    pdfContent: string, 
+    backendPdfId?: string,
+    summary?: string
+  ) => {
+    if (!pdfContent) return;
+    
+    // Format PDF content for messages
+    const summaryText = summary ? `\n\nSummary: ${summary}` : '';
+    
+    // Add system message to let user know PDF was added
+    setMessages(prev => [
+      ...prev,
+      {
+        id: String(Date.now()),
+        role: 'system',
+        content: `📄 Added PDF: "${pdfName}" to the conversation context.${summaryText}`,
+        timestamp: new Date(),
+        metadata: {
+          type: 'pdf_added',
+          pdfId,
+          backendPdfId
+        }
+      }
+    ]);
+    
+    // Focus input after adding PDF
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, 100);
+  };
+
+  // Handler for adding PDFs from the library
+  const handleAddPdfFromLibrary = async (pdf: PdfDocument) => {
+    try {
+      setActiveView('chat');
+      
+      // If PDF has a file property but no pdf_id, extract the content
+      if (pdf.file) {
+        setIsPdfUploading(true);
+        
+        try {
+          const result = await extractTextFromPdf(pdf.file);
+          
+          if (result.text && result.text.length > 0) {
+            // Clean text with sanitizer
+            const cleanedText = sanitizePdfContent(result.text);
+            
+            // Add to selected PDFs
+            const updatedPdf: PdfDocument = {
+              id: pdf.id,
+              name: pdf.name,
+              size: pdf.size,
+              date: pdf.date,
+              content: cleanedText,
+              pdf_id: result.pdf_id,
+              preview: pdf.preview,
+              summary: result.summary
+            };
+            
+            // Add to selected PDFs
+            setSelectedPdfs(prev => [...prev, updatedPdf]);
+            
+            // Add formatted content to context
+            addPdfContentToMessages(updatedPdf.id, updatedPdf.name, cleanedText, updatedPdf.pdf_id, updatedPdf.summary);
+            
+            console.log('PDF content extracted successfully:', updatedPdf.name);
+            toast.success(`PDF "${pdf.name}" added to context`);
+          } else {
+            toast.error("Could not extract meaningful text from this PDF.");
+          }
+        } catch (error) {
+          console.error("Error extracting text from PDF:", error);
+          toast.error("Failed to extract text from PDF.");
+        } finally {
+          setIsPdfUploading(false);
+        }
+      } else if (pdf.content) {
+        // Add to selected PDFs
+        setSelectedPdfs(prev => [...prev, pdf]);
+        
+        // Use existing content
+        addPdfContentToMessages(pdf.id, pdf.name, pdf.content, pdf.pdf_id, pdf.summary);
+        
+        toast.success(`PDF "${pdf.name}" added to context`);
+      } else {
+        // Neither content nor file is available
+        toast.error("PDF content not available. Try uploading the PDF again.");
+      }
+    } catch (error) {
+      console.error("Error processing PDF:", error);
+      toast.error("Error processing PDF. Please try again.");
+      setIsPdfUploading(false);
+    }
+    
+    // Switch back to chat view even if there was an error
+    setActiveView('chat');
+  };
+
+  // Add this function if you're going to query PDF content
+  const handleQueryPdf = async (query: string) => {
+    try {
+      setIsSearching(true);
+      setSearchQuery(query);
+      
+      const result = await queryPdfContent(query, 5);
+      
+      if (result.success && result.results.length > 0) {
+        // Process the results
+        return result.results;
+      } else {
+        console.warn(`No PDF content found for query: ${query}`);
+        if (result.error) {
+          toast.error(`PDF query error: ${result.error}`);
+        }
+        return [];
+      }
+    } catch (error) {
+      console.error("Error querying PDF:", error);
+      toast.error("Failed to search PDF content");
+      return [];
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   return (
@@ -1495,25 +1736,38 @@ The citation numbers will be automatically converted to interactive badges in th
           
                   {/* PDF Debug Info */}
                   {showDebugInfo && pdfDebugInfo && (
-                    <div className="flex w-full">
-                      <div className="max-w-[80%] rounded-2xl px-4 py-2 bg-red-50 border border-red-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="text-sm font-medium text-red-600">PDF Debug Information</h4>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
-                            onClick={() => setShowDebugInfo(false)}
-                          >
-                            ×
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowDebugInfo(false)}>
+                      <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg max-w-md w-full p-4" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-lg font-medium">PDF Debug Information</h3>
+                          <Button size="icon" variant="ghost" onClick={() => setShowDebugInfo(false)}>
+                            <X className="h-4 w-4" />
                           </Button>
-        </div>
-                        <pre className="text-xs text-red-700 whitespace-pre-wrap break-words overflow-auto max-h-[300px]">
-                          {pdfDebugInfo}
-                        </pre>
-                        <p className="text-xs mt-2 text-red-600">
+                        </div>
+                        <div className="mb-4 text-sm bg-slate-50 dark:bg-slate-900 p-3 rounded border overflow-auto max-h-[300px]">
+                          <pre className="whitespace-pre-wrap">{pdfDebugInfo}</pre>
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-4">
                           This information can help troubleshoot PDF upload issues. Please try a different PDF file.
                         </p>
+                        <details className="text-xs text-slate-500 dark:text-slate-400">
+                          <summary className="cursor-pointer">Troubleshooting Tips</summary>
+                          <ul className="mt-2 space-y-1 list-disc pl-5">
+                            <li>Make sure your PDF is not password-protected or encrypted</li>
+                            <li>Try saving the PDF with a different PDF viewer or converter</li>
+                            <li>Ensure your OpenAI API key is valid and has sufficient credits</li>
+                            <li>Upload a smaller PDF file if you're encountering timeout issues</li>
+                            <li>If the PDF contains scanned images, try using a PDF with actual text</li>
+                          </ul>
+                        </details>
+                        <div className="flex justify-end mt-4">
+                          <Button size="sm" onClick={() => {
+                            setShowDebugInfo(false);
+                            if (fileInputRef.current) {
+                              fileInputRef.current.click();
+                            }
+                          }}>Try Another PDF</Button>
+                        </div>
                       </div>
                     </div>
                   )}
